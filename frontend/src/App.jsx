@@ -26,7 +26,7 @@ export default function App() {
     }
     ws.onclose = () => {
       setConnected(false)
-      reconnectRef.current = setTimeout(connect, 3000)
+      reconnectRef.current = setTimeout(connect, 3000) // eslint-disable-line react-hooks/immutability
     }
     ws.onerror = () => ws.close()
     ws.onmessage = (e) => {

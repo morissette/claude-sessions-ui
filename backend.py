@@ -2,13 +2,13 @@
 """Claude Sessions UI — FastAPI backend."""
 
 import asyncio
+import contextlib
 import json
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import psutil
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -17,9 +17,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
-    Counter,
     Gauge,
-    Histogram,
     generate_latest,
 )
 
@@ -116,7 +114,7 @@ def get_running_claude_processes() -> dict[int, dict]:
 
 # ─── Session parsing ──────────────────────────────────────────────────────────
 
-def get_session_cwd(jsonl_path: Path) -> Optional[str]:
+def get_session_cwd(jsonl_path: Path) -> str | None:
     """Quick scan for cwd in the first 25 lines."""
     key = str(jsonl_path)
     try:
@@ -137,12 +135,12 @@ def get_session_cwd(jsonl_path: Path) -> Optional[str]:
                         return d["cwd"]
                 except (json.JSONDecodeError, KeyError):
                     pass
-    except (OSError, IOError):
+    except OSError:
         pass
     return None
 
 
-def parse_session_file(jsonl_path: Path, project_path: str) -> Optional[dict]:
+def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
     """Parse a JSONL session file into a session dict (with mtime-based cache)."""
     key = str(jsonl_path)
     try:
@@ -154,14 +152,14 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> Optional[dict]:
         return _session_cache[key][1]
 
     usage = {"input": 0, "output": 0, "cache_create": 0, "cache_read": 0}
-    model: Optional[str] = None
-    git_branch: Optional[str] = None
-    first_user_text: Optional[str] = None
-    last_tool_name: Optional[str] = None
-    last_assistant_snippet: Optional[str] = None
+    model: str | None = None
+    git_branch: str | None = None
+    first_user_text: str | None = None
+    last_tool_name: str | None = None
+    last_assistant_snippet: str | None = None
     turns = 0
-    first_timestamp: Optional[str] = None
-    last_timestamp: Optional[str] = None
+    first_timestamp: str | None = None
+    last_timestamp: str | None = None
 
     try:
         with open(jsonl_path) as f:
@@ -229,13 +227,13 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> Optional[dict]:
                                 elif c.get("type") == "tool_use":
                                     last_tool_name = c.get("name")
 
-    except (OSError, IOError):
+    except OSError:
         return None
 
     if not first_timestamp:
         stat = jsonl_path.stat()
         first_timestamp = datetime.fromtimestamp(
-            stat.st_ctime, tz=timezone.utc
+            stat.st_ctime, tz=UTC
         ).isoformat()
 
     pricing = MODEL_PRICING.get(model or "", MODEL_PRICING["default"])
@@ -334,9 +332,8 @@ def get_all_sessions() -> list[dict]:
             if mtime < cutoff:
                 continue
             cwd = get_session_cwd(jsonl_file)
-            if cwd and cwd in cwd_pids:
-                if mtime > cwd_newest_mtime.get(cwd, 0):
-                    cwd_newest_mtime[cwd] = mtime
+            if cwd and cwd in cwd_pids and mtime > cwd_newest_mtime.get(cwd, 0):
+                cwd_newest_mtime[cwd] = mtime
 
     for project_dir in CLAUDE_DIR.iterdir():
         if not project_dir.is_dir():
@@ -395,11 +392,11 @@ def compute_global_stats(sessions: list[dict]) -> dict:
 
     local_tz = datetime.now().astimezone().tzinfo
     midnight = datetime.now(local_tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    def _since_midnight(ts: Optional[str]) -> bool:
+    def _since_midnight(ts: str | None) -> bool:
         if not ts:
             return False
         try:
-            return datetime.fromisoformat(ts[:19]).replace(tzinfo=timezone.utc) >= midnight
+            return datetime.fromisoformat(ts[:19]).replace(tzinfo=UTC) >= midnight
         except ValueError:
             return False
     cost_today_val = sum(
@@ -459,7 +456,7 @@ def ollama_model_pulled(model: str) -> bool:
         return False
 
 
-def ollama_summarize(text: str, model: str = SUMMARY_MODEL) -> Optional[str]:
+def ollama_summarize(text: str, model: str = SUMMARY_MODEL) -> str | None:
     """Call local Ollama to produce a short task title from a raw user message."""
     prompt = (
         "Summarize this task request in 6-10 words. "
@@ -482,7 +479,7 @@ def ollama_summarize(text: str, model: str = SUMMARY_MODEL) -> Optional[str]:
         return None
 
 
-def get_cached_summary(session_id: str) -> Optional[str]:
+def get_cached_summary(session_id: str) -> str | None:
     p = SUMMARIES_DIR / f"{session_id}.txt"
     try:
         return p.read_text().strip() or None
@@ -536,10 +533,8 @@ def compute_ollama_savings() -> dict:
             for line in SAVINGS_FILE.read_text().splitlines():
                 line = line.strip()
                 if line:
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError):
                         pr_skips.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
         except OSError:
             pass
 
@@ -656,8 +651,8 @@ if _frontend_dist.exists():
 
 
 if __name__ == "__main__":
+
     import uvicorn
-    import logging
 
     LOG_FILE = str(Path.home() / ".claude" / "claude-sessions-ui.log")
     log_config = {
