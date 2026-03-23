@@ -48,7 +48,7 @@ CLAUDE_DIR = Path.home() / ".claude" / "projects"
 RECENT_HOURS = 24 #* 7  # Show sessions from last week
 
 SUMMARIES_DIR = Path.home() / ".claude" / "session_summaries"
-SUMMARIES_DIR.mkdir(exist_ok=True)
+SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
 
 SAVINGS_FILE = Path.home() / ".claude" / "pr_poller" / "ollama_savings.jsonl"
 TRUNCATION_SAVINGS_FILE = Path.home() / ".claude" / "truncation_savings.jsonl"
