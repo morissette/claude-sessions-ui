@@ -9,20 +9,13 @@ jobs:
   ruff:
     name: Ruff (Python)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Install ruff
         run: uv tool install ruff
-      - uses: reviewdog/action-ruff@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          fail_on_error: true
+      - name: Run ruff
+        run: ruff check --output-format github backend.py
 
   eslint:
     name: ESLint (Frontend)
