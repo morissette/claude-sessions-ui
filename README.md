@@ -1,5 +1,7 @@
 # Claude Sessions UI
 
+[![Lint](https://github.com/morissette/claude-sessions-ui/actions/workflows/lint.yml/badge.svg)](https://github.com/morissette/claude-sessions-ui/actions/workflows/lint.yml)
+
 ![Claude Sessions UI dashboard](images/dashboard.png)
 
 A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, costs, and activity across all your Claude conversations with live WebSocket updates and AI-powered session summarization.
