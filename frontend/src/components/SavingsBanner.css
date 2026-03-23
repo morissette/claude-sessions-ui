@@ -1,0 +1,151 @@
+.savings-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 24px;
+  background: rgba(16, 232, 138, 0.04);
+  border-bottom: 1px solid rgba(16, 232, 138, 0.12);
+  flex-wrap: wrap;
+  min-height: 38px;
+}
+
+.savings-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.savings-icon {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.savings-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.savings-total {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--active);
+}
+
+.savings-breakdown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.savings-sep {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.savings-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.savings-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.savings-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.savings-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.savings-recent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.savings-skip-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(16, 232, 138, 0.07);
+  border: 1px solid rgba(16, 232, 138, 0.15);
+  color: rgba(16, 232, 138, 0.7);
+  text-decoration: none;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s;
+}
+
+.savings-skip-chip:hover {
+  background: rgba(16, 232, 138, 0.12);
+  color: var(--active);
+}
+
+.savings-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.savings-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.savings-tool-icon {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.savings-item-total .savings-count {
+  color: var(--active);
+}
+
+.savings-model {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.model-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dot-ready {
+  background: var(--active);
+  box-shadow: 0 0 4px var(--active);
+}
+
+.dot-off {
+  background: var(--text-dim);
+}
