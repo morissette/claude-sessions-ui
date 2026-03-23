@@ -1,6 +1,7 @@
 # Claude Sessions UI
 
 [![Lint](https://github.com/morissette/claude-sessions-ui/actions/workflows/lint.yml/badge.svg)](https://github.com/morissette/claude-sessions-ui/actions/workflows/lint.yml)
+[![Test](https://github.com/morissette/claude-sessions-ui/actions/workflows/test.yml/badge.svg)](https://github.com/morissette/claude-sessions-ui/actions/workflows/test.yml)
 
 ![Claude Sessions UI dashboard](images/dashboard.png)
 
