@@ -4,6 +4,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -23,6 +24,8 @@ from prometheus_client import (
     Gauge,
     generate_latest,
 )
+
+logger = logging.getLogger(__name__)
 
 # ─── Prometheus metrics ───────────────────────────────────────────────────────
 
@@ -45,6 +48,11 @@ async def lifespan(_app: FastAPI):
     init_db()
     asyncio.create_task(_startup_backfill())
     yield
+    # Shutdown: close the SQLite connection to release file locks
+    global _db_conn
+    if _db_conn is not None:
+        _db_conn.close()
+        _db_conn = None
 
 
 app = FastAPI(title="Claude Sessions UI", lifespan=lifespan)
@@ -298,9 +306,21 @@ def get_all_sessions_unbounded() -> list[dict]:
 
 async def _startup_backfill() -> None:
     """Asynchronously backfill all historical JSONL sessions into SQLite."""
-    loop = asyncio.get_event_loop()
-    sessions = await loop.run_in_executor(None, get_all_sessions_unbounded)
-    await loop.run_in_executor(None, upsert_sessions_to_db, sessions)
+    try:
+        loop = asyncio.get_event_loop()
+        sessions = await loop.run_in_executor(None, get_all_sessions_unbounded)
+        await loop.run_in_executor(None, upsert_sessions_to_db, sessions)
+        logger.info("Startup backfill complete: %d sessions stored", len(sessions))
+    except Exception:
+        logger.exception("Startup backfill failed")
+
+
+async def _upsert_in_background(sessions: list[dict]) -> None:
+    """Run upsert_sessions_to_db in a thread pool, logging any error instead of dropping it."""
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
+    except Exception:
+        logger.exception("Background SQLite upsert failed")
 
 
 # ─── Process discovery ────────────────────────────────────────────────────────
@@ -792,8 +812,7 @@ async def list_sessions(time_range: str = "1d"):
     # Only upsert when sessions came from JSONL (live path); historical DB reads
     # don't need to be written back and would add unnecessary write contention.
     if hours <= LIVE_HOURS:
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, upsert_sessions_to_db, sess)
+        asyncio.create_task(_upsert_in_background(sess))
     return {
         "sessions": sess,
         "stats": stats,
@@ -874,15 +893,17 @@ async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
         time_range = "1d"
     await ws.accept()
     _active_ws.append(ws)
+    upsert_task: asyncio.Task | None = None  # per-connection handle prevents backlog buildup
     try:
         while True:
             sess = get_sessions_for_range(time_range)
             hours = TIME_RANGE_HOURS[time_range]
             stats = compute_global_stats(sess, hours)
             _update_prometheus(stats)
-            # Only upsert for live JSONL ranges; skip DB-sourced reads to avoid write churn.
-            if hours <= LIVE_HOURS:
-                asyncio.get_event_loop().run_in_executor(None, upsert_sessions_to_db, sess)
+            # Only upsert for live JSONL ranges; skip a new upsert if the previous one is
+            # still running to prevent an unbounded backlog of write tasks.
+            if hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
+                upsert_task = asyncio.create_task(_upsert_in_background(sess))
             await ws.send_json({
                 "sessions": sess,
                 "stats": stats,
