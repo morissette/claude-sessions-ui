@@ -8,6 +8,7 @@ import MemoryExplorer from './components/MemoryExplorer'
 import { usePersistedState } from './hooks/usePersistedState.js'
 import TrendsChart from './components/TrendsChart'
 import { ProjectList } from './components/ProjectCard'
+import BatchActionBar from './components/BatchActionBar'
 import './App.css'
 
 const PREFS_DEFAULTS = {
@@ -53,6 +54,9 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedSessions, setSelectedSessions] = useState(new Set())
+  const [batchProgress, setBatchProgress] = useState({})
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searchLoading, setSearchLoading] = useState(false)
@@ -173,6 +177,73 @@ export default function App() {
     setViewMode('sessions')
   }
 
+  function toggleSelectMode() {
+    setSelectMode(s => {
+      if (s) { setSelectedSessions(new Set()); setBatchProgress({}) }
+      return !s
+    })
+  }
+
+  function toggleSession(id) {
+    setSelectedSessions(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function handleBatchSummarize() {
+    const ids = [...selectedSessions]
+    setBatchProgress(Object.fromEntries(ids.map(id => [id, 'pending'])))
+    const response = await fetch('/api/batch/summarize', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_ids: ids}),
+    })
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const {done, value} = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, {stream: true})
+      const parts = buf.split('\n\n')
+      buf = parts.pop()
+      for (const part of parts) {
+        if (part.startsWith('data: ')) {
+          try {
+            const event = JSON.parse(part.slice(6))
+            if (event.id) setBatchProgress(prev => ({...prev, [event.id]: event.status}))
+          } catch {}
+        }
+      }
+    }
+  }
+
+  async function handleBatchExport() {
+    const res = await fetch('/api/batch/export', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_ids: [...selectedSessions]}),
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'sessions-export.zip'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleBatchCostReport() {
+    const res = await fetch('/api/batch/cost-report', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_ids: [...selectedSessions]}),
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'cost-report.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const sessions = data.sessions || []
   const stats = data.stats || {}
 
@@ -242,6 +313,13 @@ export default function App() {
             className={`toolbar__view-btn ${viewMode === 'projects' ? 'active' : ''}`}
             onClick={() => setViewMode('projects')}
           >Projects</button>
+          <button
+            type="button"
+            className={`toolbar__view-btn ${selectMode ? 'active' : ''}`}
+            onClick={toggleSelectMode}
+          >
+            {selectMode ? `Selecting (${selectedSessions.size})` : 'Select'}
+          </button>
         </div>
 
         {selectedProject && (
@@ -369,7 +447,10 @@ export default function App() {
                   key={session.session_id}
                   session={session}
                   ollama={ollama}
-                  onSelect={setSelectedSessionId}
+                  onSelect={selectMode ? () => toggleSession(session.session_id) : setSelectedSessionId}
+                  selectMode={selectMode}
+                  isSelected={selectedSessions.has(session.session_id)}
+                  batchStatus={batchProgress[session.session_id]}
                 />
               ))}
             </div>
@@ -383,6 +464,18 @@ export default function App() {
           sessionId={selectedSessionId}
           onClose={() => setSelectedSessionId(null)}
           ollama={ollama}
+        />
+      )}
+
+      {selectMode && (
+        <BatchActionBar
+          count={selectedSessions.size}
+          onSelectAll={() => setSelectedSessions(new Set(sorted.map(s => s.session_id)))}
+          onDeselectAll={() => setSelectedSessions(new Set())}
+          onSummarize={handleBatchSummarize}
+          onExport={handleBatchExport}
+          onCostReport={handleBatchCostReport}
+          ollamaAvailable={ollama.model_ready}
         />
       )}
     </div>

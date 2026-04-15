@@ -1118,3 +1118,43 @@ def test_api_projects_returns_list(tmp_path, monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
+
+
+# ─── Batch Operations ────────────────────────────────────────────────────────
+
+def test_batch_export_empty_session_ids():
+    from fastapi.testclient import TestClient
+    with TestClient(backend.app) as client:
+        resp = client.post("/api/batch/export", json={"session_ids": []})
+    assert resp.status_code == 400
+
+def test_batch_export_invalid_session_id():
+    from fastapi.testclient import TestClient
+    with TestClient(backend.app) as client:
+        resp = client.post("/api/batch/export", json={"session_ids": ["../etc/passwd"]})
+    assert resp.status_code == 400
+
+def test_batch_cost_report_empty():
+    from fastapi.testclient import TestClient
+    with TestClient(backend.app) as client:
+        resp = client.post("/api/batch/cost-report", json={"session_ids": []})
+    assert resp.status_code == 400
+
+def test_batch_cost_report_returns_csv_headers():
+    from fastapi.testclient import TestClient
+    with TestClient(backend.app) as client:
+        resp = client.post("/api/batch/cost-report", json={"session_ids": ["nonexistent-session-abc"]})
+    assert resp.status_code == 200
+    assert "session_id" in resp.text
+
+def test_batch_summarize_empty_session_ids():
+    from fastapi.testclient import TestClient
+    with TestClient(backend.app) as client:
+        resp = client.post("/api/batch/summarize", json={"session_ids": []})
+    assert resp.status_code == 400
+
+def test_batch_summarize_invalid_session_id():
+    from fastapi.testclient import TestClient
+    with TestClient(backend.app) as client:
+        resp = client.post("/api/batch/summarize", json={"session_ids": ["../path/traversal"]})
+    assert resp.status_code == 400
