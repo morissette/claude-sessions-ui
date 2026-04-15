@@ -4,6 +4,7 @@ import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
 import SearchResults from './components/SearchResults'
+import MemoryExplorer from './components/MemoryExplorer'
 import { usePersistedState } from './hooks/usePersistedState.js'
 import { ProjectList } from './components/ProjectCard'
 import './App.css'
@@ -45,6 +46,7 @@ export default function App() {
   const setFilter    = (v) => setPrefs(p => ({...p, filter:    v}))
   const setSort      = (v) => setPrefs(p => ({...p, sort:      v}))
   const setTimeRange = (v) => setPrefs(p => ({...p, timeRange: v}))
+
 
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
@@ -321,11 +323,24 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        <div className="view-controls">
+          <button
+            className={`toolbar__view-btn ${viewMode === 'sessions' ? 'active' : ''}`}
+            onClick={() => setViewMode('sessions')}
+          >Sessions</button>
+          <button
+            className={`toolbar__view-btn ${viewMode === 'memory' ? 'active' : ''}`}
+            onClick={() => setViewMode('memory')}
+          >Memory</button>
+        </div>
       </div>
 
       <main className="sessions-container">
         {searchResults !== null
           ? <SearchResults results={searchResults} loading={searchLoading} onSelect={setSelectedSessionId} />
+          : viewMode === 'memory'
+          ? <MemoryExplorer />
           : viewMode === 'projects'
           ? <ProjectList projects={projectData} onSelect={handleProjectSelect} />
           : sorted.length === 0 ? (

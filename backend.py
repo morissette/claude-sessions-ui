@@ -92,6 +92,23 @@ TRUNCATION_SAVINGS_FILE = Path.home() / ".claude" / "truncation_savings.jsonl"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 SUMMARY_MODEL = "llama3.2:3b"
 
+CLAUDE_BASE_DIR = Path.home() / ".claude"
+
+MEMORY_ALLOWLIST = [
+    "memory",
+    "projects",
+    "commands",
+    "agents",
+    "skills",
+    "hooks",
+    "todos",
+]
+MEMORY_ALLOWLIST_FILES = [
+    "settings.json",
+    "settings.local.json",
+    "CLAUDE.md",
+]
+
 # Cost we'd pay for one summary via Claude Haiku (~500 input + ~15 output tokens)
 SUMMARY_COST_ESTIMATE_USD = round(500 * 0.8 / 1_000_000 + 15 * 4.0 / 1_000_000, 6)  # ~$0.00046
 
@@ -1366,6 +1383,51 @@ def template_generate_skill(skill_data: dict) -> tuple[str, str]:
     return name, body
 
 
+# ─── Memory Explorer helpers ─────────────────────────────────────────────────
+
+
+def validate_memory_path(rel_path: str) -> Path:
+    """Resolve rel_path relative to CLAUDE_BASE_DIR. Raises HTTPException 403 if unsafe.
+
+    Security: rejects null bytes, paths outside CLAUDE_BASE_DIR, paths outside the
+    specific allowed subdirectory (prevents traversal like 'memory/../secrets.db'),
+    and paths whose root component is not in the allowlist.
+    """
+    if "\x00" in rel_path:
+        raise HTTPException(status_code=403, detail="Invalid path")
+
+    parts = Path(rel_path).parts
+    if not parts:
+        raise HTTPException(status_code=403, detail="Empty path")
+
+    root = parts[0]
+    if root not in MEMORY_ALLOWLIST and rel_path not in MEMORY_ALLOWLIST_FILES:
+        raise HTTPException(status_code=403, detail="Directory not allowed")
+
+    try:
+        resolved = (CLAUDE_BASE_DIR / rel_path).resolve()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=403, detail="Invalid path") from exc
+
+    # For top-level allowlisted files (e.g. "settings.json"), verify they stay within
+    # CLAUDE_BASE_DIR.  For directory-rooted paths (e.g. "memory/…"), verify the
+    # resolved path stays strictly inside that specific subdirectory so that a path
+    # like "memory/../claude-sessions-ui.db" is rejected even though its parts[0] is
+    # "memory" and the resolved target would still be inside CLAUDE_BASE_DIR.
+    if rel_path in MEMORY_ALLOWLIST_FILES:
+        allowed_base = CLAUDE_BASE_DIR.resolve()
+    else:
+        allowed_base = (CLAUDE_BASE_DIR / root).resolve()
+
+    allowed_base_str = str(allowed_base)
+    resolved_str = str(resolved)
+
+    if resolved_str != allowed_base_str and not resolved_str.startswith(allowed_base_str + "/"):
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+
+    return resolved
+
+
 # ─── HTTP endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/api/sessions")
@@ -1600,6 +1662,102 @@ async def export_skill(session_id: str, scope: str = "global"):
         "skill_path": str(skill_path),
         "scope": scope,
         "ollama_used": ollama_used,
+    }
+
+
+@app.get("/api/memory")
+async def get_memory_tree():
+    def _build_tree() -> dict:
+        base = CLAUDE_BASE_DIR.resolve()
+        tree: dict = {"type": "dir", "name": ".claude", "children": []}
+
+        for fname in MEMORY_ALLOWLIST_FILES:
+            fp = base / fname
+            if fp.exists() and fp.is_file() and not fp.is_symlink():
+                try:
+                    stat = fp.stat()
+                    tree["children"].append({
+                        "type": "file",
+                        "name": fname,
+                        "path": fname,
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                    })
+                except OSError:
+                    pass
+
+        for dname in MEMORY_ALLOWLIST:
+            dp = base / dname
+            if dp.exists() and dp.is_dir() and not dp.is_symlink():
+                tree["children"].append(_build_dir(dp, dname))
+
+        return tree
+
+    def _build_dir(directory: Path, rel_prefix: str) -> dict:
+        children = []
+        try:
+            for entry in sorted(directory.iterdir(), key=lambda e: e.name):
+                if entry.is_symlink():
+                    continue
+                rel = f"{rel_prefix}/{entry.name}"
+                if entry.is_file():
+                    try:
+                        stat = entry.stat()
+                        children.append({
+                            "type": "file",
+                            "name": entry.name,
+                            "path": rel,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                        })
+                    except OSError:
+                        pass
+                elif entry.is_dir() and not entry.name.startswith("."):
+                    children.append(_build_dir(entry, rel))
+        except PermissionError:
+            pass
+        return {"type": "dir", "name": directory.name, "path": rel_prefix, "children": children}
+
+    result = await asyncio.get_running_loop().run_in_executor(None, _build_tree)
+    return result
+
+
+@app.get("/api/memory/file")
+async def get_memory_file(path: str):
+    resolved = validate_memory_path(path)
+
+    if not resolved.exists() or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    MAX_SIZE = 500 * 1024
+    try:
+        stat = resolved.stat()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    truncated = stat.st_size > MAX_SIZE
+
+    try:
+        content = resolved.read_bytes()[:MAX_SIZE].decode("utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Cannot read file") from exc
+
+    suffix = resolved.suffix.lower()
+    if suffix in (".md", ".markdown"):
+        mime = "text/markdown"
+    elif suffix == ".json":
+        mime = "application/json"
+    else:
+        mime = "text/plain"
+
+    return {
+        "path": path,
+        "name": resolved.name,
+        "content": content,
+        "mime": mime,
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+        "truncated": truncated,
     }
 
 
