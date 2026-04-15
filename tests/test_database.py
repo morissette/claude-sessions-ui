@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import backend
+import backend.process  # noqa: F401 — needed so backend.process is patchable in tests
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,7 +134,7 @@ class TestGetSessionsFromDb:
         recent = _make_session("recent", last_active=datetime.now(UTC).isoformat())
         old = _make_session("old", last_active="2000-01-01T00:00:00+00:00")
         self._init_with_sessions(tmp_path, monkeypatch, [recent, old])
-        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        monkeypatch.setattr(backend.process, "get_running_claude_processes", lambda: {})
         result = backend.get_sessions_from_db(hours=24)
         ids = [s["session_id"] for s in result]
         assert "recent" in ids
@@ -141,7 +142,7 @@ class TestGetSessionsFromDb:
 
     def test_returns_all_required_keys(self, tmp_path, monkeypatch):
         self._init_with_sessions(tmp_path, monkeypatch, [_make_session()])
-        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        monkeypatch.setattr(backend.process, "get_running_claude_processes", lambda: {})
         result = backend.get_sessions_from_db(hours=24)
         assert len(result) == 1
         s = result[0]
@@ -153,7 +154,7 @@ class TestGetSessionsFromDb:
     def test_active_session_annotated(self, tmp_path, monkeypatch):
         self._init_with_sessions(tmp_path, monkeypatch, [_make_session("mysess")])
         monkeypatch.setattr(
-            backend, "get_running_claude_processes",
+            backend.process, "get_running_claude_processes",
             lambda: {99: {"pid": 99, "cwd": None, "session_id": "mysess", "create_time": 0.0}},
         )
         result = backend.get_sessions_from_db(hours=24)
@@ -170,7 +171,7 @@ class TestGetSessionsFromDb:
         recent = _make_session("recent", last_active=datetime.now(UTC).isoformat())
         old = _make_session("old", last_active="2000-01-01T00:00:00+00:00")
         self._init_with_sessions(tmp_path, monkeypatch, [recent, old])
-        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        monkeypatch.setattr(backend.process, "get_running_claude_processes", lambda: {})
         result = backend.get_sessions_from_db()
         ids = [s["session_id"] for s in result]
         assert "recent" in ids
@@ -181,7 +182,7 @@ class TestGetSessionsFromDb:
         in_range = _make_session("in_range", last_active="2025-06-15T12:00:00+00:00")
         out_range = _make_session("out_range", last_active="2025-01-01T00:00:00+00:00")
         self._init_with_sessions(tmp_path, monkeypatch, [in_range, out_range])
-        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        monkeypatch.setattr(backend.process, "get_running_claude_processes", lambda: {})
         result = backend.get_sessions_from_db(
             start="2025-06-01T00:00:00+00:00",
             end="2025-06-30T23:59:59+00:00",

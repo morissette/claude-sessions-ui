@@ -1,30 +1,39 @@
 """System/infrastructure HTTP endpoints."""
 
+import asyncio
+
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from backend import aggregation, constants, database, metrics, ollama
+from .. import aggregation, constants, database, metrics, ollama
 
 router = APIRouter()
 
 
 @router.get("/api/db/status")
 async def db_status():
-    if database._db_conn is None:
-        return {"total_stored": 0, "oldest": None, "newest": None, "db_path": str(constants.DB_PATH)}
-    with database._db_lock:
-        cur = database._db_conn.execute(
-            "SELECT COUNT(*), MIN(last_active), MAX(last_active) FROM sessions"
-        )
-        count, oldest, newest = cur.fetchone()
-    return {"total_stored": count, "oldest": oldest, "newest": newest, "db_path": str(constants.DB_PATH)}
+    def _query():
+        if database._db_conn is None:
+            return {"total_stored": 0, "oldest": None, "newest": None, "db_path": str(constants.DB_PATH)}
+        with database._db_lock:
+            cur = database._db_conn.execute(
+                "SELECT COUNT(*), MIN(last_active), MAX(last_active) FROM sessions"
+            )
+            count, oldest, newest = cur.fetchone()
+        return {"total_stored": count, "oldest": oldest, "newest": newest, "db_path": str(constants.DB_PATH)}
+
+    return await asyncio.get_running_loop().run_in_executor(None, _query)
 
 
 @router.get("/api/ollama")
 async def ollama_status():
-    available = ollama.ollama_is_available()
-    model_ready = ollama.ollama_model_pulled(constants.SUMMARY_MODEL) if available else False
+    loop = asyncio.get_running_loop()
+    available = await loop.run_in_executor(None, ollama.ollama_is_available)
+    model_ready = (
+        await loop.run_in_executor(None, ollama.ollama_model_pulled, constants.SUMMARY_MODEL)
+        if available else False
+    )
     return {
         "available": available,
         "model": constants.SUMMARY_MODEL,

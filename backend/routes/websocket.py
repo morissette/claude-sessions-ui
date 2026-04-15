@@ -6,14 +6,11 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend import aggregation, config, constants, database, metrics, ollama
+from .. import aggregation, config, constants, database, metrics, ollama
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-_active_ws: list[WebSocket] = []
-
 
 @router.websocket("/ws")
 async def websocket_endpoint(
@@ -42,7 +39,6 @@ async def websocket_endpoint(
     if time_range not in constants.TIME_RANGE_HOURS:
         time_range = "1d"
     await ws.accept()
-    _active_ws.append(ws)
     upsert_task: asyncio.Task | None = None
     try:
         while True:
@@ -97,6 +93,3 @@ async def websocket_endpoint(
         pass
     except Exception:
         log.exception("Unexpected error in WebSocket loop")
-    finally:
-        if ws in _active_ws:
-            _active_ws.remove(ws)

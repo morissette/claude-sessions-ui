@@ -11,16 +11,6 @@ logger = logging.getLogger(__name__)
 
 # ─── Session aggregation ─────────────────────────────────────────────────────
 
-def _norm_ts(ts: str | None) -> str:
-    """Normalize ISO timestamp to +00:00 format for lexicographic comparison.
-
-    Handles the mix of Z-suffix and +00:00-suffix timestamps that appear in
-    JSONL session files, ensuring min/max comparisons work correctly.
-    """
-    if not ts:
-        return ""
-    return ts.replace("Z", "+00:00")
-
 
 def compute_project_stats(sessions: list[dict]) -> list[dict]:
     # Key by project_path (falls back to project_name) so distinct projects
@@ -54,9 +44,9 @@ def compute_project_stats(sessions: list[dict]) -> list[dict]:
         started = s.get("started_at")
         active = s.get("last_active")
         # Normalize timestamps before comparing to handle Z vs +00:00 suffix mix
-        if started and p["first_session"] and _norm_ts(started) < _norm_ts(p["first_session"]):
+        if started and p["first_session"] and constants._normalize_ts(started) < constants._normalize_ts(p["first_session"]):
             p["first_session"] = started
-        if active and p["last_session"] and _norm_ts(active) > _norm_ts(p["last_session"]):
+        if active and p["last_session"] and constants._normalize_ts(active) > constants._normalize_ts(p["last_session"]):
             p["last_session"] = active
 
     for p in projects.values():
@@ -81,30 +71,15 @@ def get_all_sessions(hours: int | None = 24) -> list[dict]:
 
     now = time.time()
     cutoff = (now - hours * 3600) if hours is not None else 0
-    sessions: list[dict] = []
 
-    # For CWD-based matching (no --resume), only the NEWEST session in each
-    # project dir should be considered active.  Pre-compute: cwd → newest mtime.
+    # Single pass: collect (session, cwd, mtime) tuples and build cwd_newest_mtime
+    # simultaneously to avoid iterating the project directories twice.
     cwd_newest_mtime: dict[str, float] = {}
+    collected: list[tuple[dict, str | None, float]] = []
 
     for project_dir in constants.CLAUDE_DIR.iterdir():
         if not project_dir.is_dir():
             continue
-        for jsonl_file in project_dir.glob("*.jsonl"):
-            try:
-                mtime = jsonl_file.stat().st_mtime
-            except OSError:
-                continue
-            if mtime < cutoff:
-                continue
-            cwd = parsing.get_session_cwd(jsonl_file)
-            if cwd and cwd in cwd_pids and mtime > cwd_newest_mtime.get(cwd, 0):
-                cwd_newest_mtime[cwd] = mtime
-
-    for project_dir in constants.CLAUDE_DIR.iterdir():
-        if not project_dir.is_dir():
-            continue
-
         for jsonl_file in project_dir.glob("*.jsonl"):
             try:
                 mtime = jsonl_file.stat().st_mtime
@@ -123,24 +98,32 @@ def get_all_sessions(hours: int | None = 24) -> list[dict]:
             # Shallow copy so we can annotate is_active/pid/summary without dirtying cache
             session = dict(session)
             session["ai_summary"] = ollama.get_cached_summary(session["session_id"])
+            collected.append((session, cwd, mtime))
 
-            sid = session["session_id"]
-            if sid in session_pid:
-                # Direct --resume match: always authoritative
-                session["is_active"] = True
-                session["pid"] = session_pid[sid]
-            elif (
-                cwd
-                and cwd in cwd_pids
-                and mtime == cwd_newest_mtime.get(cwd, -1)
-            ):
-                # CWD match: only the newest session in this dir is active
-                session["is_active"] = True
-                session["pid"] = cwd_pids[cwd][0]
+            # Track newest mtime per CWD for CWD-based active-session matching
+            if cwd and cwd in cwd_pids and mtime > cwd_newest_mtime.get(cwd, 0):
+                cwd_newest_mtime[cwd] = mtime
 
-            sessions.append(session)
+    # Second in-memory pass: annotate is_active/pid now that cwd_newest_mtime is complete
+    sessions: list[dict] = []
+    for session, cwd, mtime in collected:
+        sid = session["session_id"]
+        if sid in session_pid:
+            # Direct --resume match: always authoritative
+            session["is_active"] = True
+            session["pid"] = session_pid[sid]
+        elif (
+            cwd
+            and cwd in cwd_pids
+            and mtime == cwd_newest_mtime.get(cwd, -1)
+        ):
+            # CWD match: only the newest session in this dir is active
+            session["is_active"] = True
+            session["pid"] = cwd_pids[cwd][0]
+        sessions.append(session)
 
-    sessions.sort(key=lambda s: (not s["is_active"], s.get("last_active") or ""), reverse=False)
+    # Sort newest-first within each activity group (matches SQLite ORDER BY last_active DESC)
+    sessions.sort(key=lambda s: constants._normalize_ts(s.get("last_active") or ""), reverse=True)
     sessions.sort(key=lambda s: not s["is_active"])
     return sessions
 

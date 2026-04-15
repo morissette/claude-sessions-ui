@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import database, fts
+from . import aggregation, constants, database, fts
 from .routes import register_routes
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ async def _startup_backfill() -> None:
     """Asynchronously backfill all historical JSONL sessions into SQLite."""
     try:
         loop = asyncio.get_running_loop()
-        sessions = await loop.run_in_executor(None, database.get_all_sessions_unbounded)
+        sessions = await loop.run_in_executor(None, aggregation.get_all_sessions, None)
         await loop.run_in_executor(None, database.upsert_sessions_to_db, sessions)
         logger.info("Startup backfill complete: %d sessions stored", len(sessions))
     except Exception:
@@ -29,6 +29,7 @@ async def _startup_backfill() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    constants.SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
     database.init_db()
     asyncio.create_task(_startup_backfill())
     asyncio.create_task(database.backfill_daily_costs())

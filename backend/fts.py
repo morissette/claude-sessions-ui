@@ -20,19 +20,27 @@ async def backfill_fts() -> None:
     _fts_backfill_running = True
     try:
         def _run() -> None:
+            # Phase 1 (outside lock): read all JSONL files — disk I/O must not hold _db_lock.
             jsonl_files = list(constants.CLAUDE_DIR.rglob("*.jsonl"))
-            rows_to_insert: list[tuple[str, str, str, str]] = []
+            prefetched: dict[str, list[tuple[str, str, str, str]]] = {}
+            for jf in jsonl_files:
+                sid = jf.stem
+                prefetched[sid] = database._extract_messages_from_jsonl(jf)
+
+            # Phase 2 (inside lock): check existence + batch-insert only new sessions.
             with database._db_lock:
                 if database._db_conn is None:
                     return
-                for jf in jsonl_files:
-                    sid = jf.stem
+                rows_to_insert: list[tuple[str, str, str, str]] = []
+                for sid, rows in prefetched.items():
+                    if not rows:
+                        continue
                     existing = database._db_conn.execute(
                         "SELECT 1 FROM session_messages WHERE session_id = ? LIMIT 1", (sid,)
                     ).fetchone()
                     if existing:
                         continue
-                    rows_to_insert.extend(database._extract_messages_from_jsonl(jf))
+                    rows_to_insert.extend(rows)
                 if rows_to_insert:
                     database._db_conn.executemany(
                         "INSERT INTO session_messages (session_id, role, content, ts)"

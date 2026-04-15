@@ -20,7 +20,6 @@ TIME_RANGE_HOURS: dict[str, int | None] = {
 }
 
 SUMMARIES_DIR = Path.home() / ".claude" / "session_summaries"
-SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
 
 SKILLS_DIR = Path.home() / ".claude" / "skills"
 

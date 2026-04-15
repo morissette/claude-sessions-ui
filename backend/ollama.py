@@ -68,6 +68,7 @@ def get_cached_summary(session_id: str) -> str | None:
 
 
 def cache_summary(session_id: str, summary: str) -> None:
+    constants.SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
     (constants.SUMMARIES_DIR / f"{session_id}.txt").write_text(summary)
 
 

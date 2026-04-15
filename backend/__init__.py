@@ -63,8 +63,8 @@ _SUBMODULE_MAP: dict[str, tuple[str, str]] = {
     "ollama_is_available": ("ollama", "ollama_is_available"),
     # memory
     "validate_memory_path": ("memory", "validate_memory_path"),
-    # process — target database's local import so get_sessions_from_db sees the mock
-    "get_running_claude_processes": ("database", "get_running_claude_processes"),
+    # process
+    "get_running_claude_processes": ("process", "get_running_claude_processes"),
     # app
     "app": ("app", "app"),
 }

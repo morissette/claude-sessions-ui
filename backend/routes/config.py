@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from backend import config as config_module
+from .. import config as config_module
 
 router = APIRouter()
 

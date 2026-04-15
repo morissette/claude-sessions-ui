@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Query
 
-from backend import aggregation, config, constants, database
+from .. import aggregation, config, constants, database
 
 router = APIRouter()
 

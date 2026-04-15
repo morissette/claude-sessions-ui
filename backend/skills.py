@@ -73,6 +73,12 @@ def extract_session_skill_data(path: Path) -> dict:
     except OSError:
         pass
 
+    # Fall back to first user message or file stem when no summary line was found
+    if not title and first_user_message:
+        title = first_user_message[:100]
+    if not title:
+        title = path.stem
+
     return {
         "tools_used": sorted(tools_used),
         "first_user_message": first_user_message or "",

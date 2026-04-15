@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from backend import constants
-from backend import memory as memory_module
+from .. import constants
+from .. import memory as memory_module
 
 router = APIRouter()
 

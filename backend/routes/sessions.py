@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
-from backend import (
+from .. import (
     aggregation,
     constants,
     database,
@@ -215,7 +215,10 @@ async def batch_summarize(body: dict):
     import logging
     _logger = logging.getLogger(__name__)
 
-    session_ids: list[str] = body.get("session_ids", [])[:50]
+    session_ids = body.get("session_ids", [])
+    if not isinstance(session_ids, list):
+        raise HTTPException(status_code=400, detail="session_ids must be a list")
+    session_ids = session_ids[:50]
     if not session_ids:
         raise HTTPException(status_code=400, detail="No session IDs provided")
     for sid in session_ids:
@@ -249,7 +252,10 @@ async def batch_summarize(body: dict):
 
 @router.post("/api/batch/export")
 async def batch_export(body: dict):
-    session_ids: list[str] = body.get("session_ids", [])[:100]
+    session_ids = body.get("session_ids", [])
+    if not isinstance(session_ids, list):
+        raise HTTPException(status_code=400, detail="session_ids must be a list")
+    session_ids = session_ids[:100]
     if not session_ids:
         raise HTTPException(status_code=400, detail="No session IDs provided")
     for sid in session_ids:
@@ -278,7 +284,10 @@ async def batch_export(body: dict):
 async def batch_cost_report(body: dict):
     import csv
 
-    session_ids: list[str] = body.get("session_ids", [])[:100]
+    session_ids = body.get("session_ids", [])
+    if not isinstance(session_ids, list):
+        raise HTTPException(status_code=400, detail="session_ids must be a list")
+    session_ids = session_ids[:100]
     if not session_ids:
         raise HTTPException(status_code=400, detail="No session IDs provided")
     for sid in session_ids:

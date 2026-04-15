@@ -9,10 +9,9 @@ import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import constants
+from . import constants, process
 from .detail import find_session_file
 from .ollama import get_cached_summary
-from .process import get_running_claude_processes
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +274,7 @@ def get_sessions_from_db(
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    processes = get_running_claude_processes()
+    processes = process.get_running_claude_processes()
     session_pid: dict[str, int] = {
         info["session_id"]: pid
         for pid, info in processes.items()
@@ -325,36 +324,6 @@ def get_sessions_from_db(
     sessions.sort(key=lambda s: not s["is_active"])
     return sessions
 
-
-def get_sessions_for_range(
-    time_range: str,
-    start: str | None = None,
-    end: str | None = None,
-) -> list[dict]:
-    """Dispatch to JSONL (short ranges) or SQLite (historical ranges)."""
-    from backend.aggregation import get_all_sessions  # noqa: PLC0415 — avoids circular import
-
-    hours = constants.TIME_RANGE_HOURS.get(time_range, 24)
-
-    # Custom range always routes to SQLite
-    if start or end:
-        return get_sessions_from_db(start=start, end=end)
-
-    # "all" routes to SQLite with no cutoff
-    if hours is None:
-        return get_sessions_from_db()
-
-    # Existing routing logic unchanged
-    if hours <= constants.LIVE_HOURS:
-        return get_all_sessions(hours=hours)
-    return get_sessions_from_db(hours=hours)
-
-
-def get_all_sessions_unbounded() -> list[dict]:
-    """Parse all JSONL sessions regardless of age — used for startup DB backfill."""
-    from backend.aggregation import get_all_sessions  # noqa: PLC0415 — avoids circular import
-
-    return get_all_sessions(hours=None)
 
 
 def get_session_by_id(session_id: str) -> dict | None:
