@@ -110,9 +110,28 @@ _db_lock = threading.Lock()
 # ─── SQLite storage ──────────────────────────────────────────────────────────
 
 
+def _normalize_ts(ts: str) -> str:
+    """Normalize an ISO 8601 timestamp to consistent +00:00 UTC format for SQLite sorting.
+
+    JSONL files use the 'Z' suffix; Python isoformat() uses '+00:00'. Storing a
+    mix causes lexicographic range queries to mis-sort because 'Z' (0x5A) sorts
+    after '+' (0x2B) in ASCII. This converts both forms to the +00:00 variant.
+    """
+    if not ts:
+        return ts
+    try:
+        normalized = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
+        return datetime.fromisoformat(normalized).isoformat()
+    except (ValueError, AttributeError):
+        return ts
+
+
 def init_db() -> None:
     """Create the SQLite DB, table, and indexes. Must be called once at startup."""
     global _db_conn
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _db_conn is not None:
+        _db_conn.close()
     _db_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _db_conn.execute("PRAGMA journal_mode=WAL")
     _db_conn.executescript("""
@@ -159,8 +178,8 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             s["turns"],
             s["subagent_count"],
             json.dumps(s.get("subagents", [])),
-            s["started_at"],
-            s["last_active"],
+            _normalize_ts(s["started_at"]),
+            _normalize_ts(s["last_active"]),
             s["stats"]["input_tokens"],
             s["stats"]["output_tokens"],
             s["stats"]["cache_create_tokens"],
@@ -758,11 +777,15 @@ def compute_ollama_savings() -> dict:
 async def list_sessions(time_range: str = "1d"):
     if time_range not in TIME_RANGE_HOURS:
         time_range = "1d"
+    hours = TIME_RANGE_HOURS[time_range]
     sess = get_sessions_for_range(time_range)
-    stats = compute_global_stats(sess, TIME_RANGE_HOURS[time_range])
+    stats = compute_global_stats(sess, hours)
     _update_prometheus(stats)
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, upsert_sessions_to_db, sess)
+    # Only upsert when sessions came from JSONL (live path); historical DB reads
+    # don't need to be written back and would add unnecessary write contention.
+    if hours <= LIVE_HOURS:
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, upsert_sessions_to_db, sess)
     return {
         "sessions": sess,
         "stats": stats,
@@ -846,9 +869,12 @@ async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
     try:
         while True:
             sess = get_sessions_for_range(time_range)
-            stats = compute_global_stats(sess, TIME_RANGE_HOURS[time_range])
+            hours = TIME_RANGE_HOURS[time_range]
+            stats = compute_global_stats(sess, hours)
             _update_prometheus(stats)
-            asyncio.get_event_loop().run_in_executor(None, upsert_sessions_to_db, sess)
+            # Only upsert for live JSONL ranges; skip DB-sourced reads to avoid write churn.
+            if hours <= LIVE_HOURS:
+                asyncio.get_event_loop().run_in_executor(None, upsert_sessions_to_db, sess)
             await ws.send_json({
                 "sessions": sess,
                 "stats": stats,

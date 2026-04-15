@@ -1,11 +1,8 @@
 """Unit tests for backend.py pure functions."""
 
 import json
-import sqlite3
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -637,6 +634,11 @@ client = TestClient(backend.app)
 
 
 class TestApiEndpoints:
+    @pytest.fixture(autouse=True)
+    def _isolate_db(self, tmp_path, monkeypatch):
+        """Patch DB_PATH to a temp file so tests never touch ~/.claude/."""
+        monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+
     def test_sessions_endpoint_returns_200(self, tmp_path, monkeypatch):
         monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
         monkeypatch.setattr(backend, "SUMMARIES_DIR", tmp_path / "summaries")
