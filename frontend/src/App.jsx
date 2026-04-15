@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
+import BudgetBanner from './components/BudgetBanner'
 import SessionDetail from './components/SessionDetail'
 import SearchResults from './components/SearchResults'
 import MemoryExplorer from './components/MemoryExplorer'
@@ -53,6 +54,7 @@ export default function App() {
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
+  const [budgetDismissed, setBudgetDismissed] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState(null)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedSessions, setSelectedSessions] = useState(new Set())
@@ -113,6 +115,7 @@ export default function App() {
       try {
         setData(JSON.parse(e.data))
         setLastUpdate(new Date())
+        setBudgetDismissed(false)
       } catch {}
     }
   }, [timeRange, customStart, customEnd, selectedProject])
@@ -308,6 +311,13 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {!budgetDismissed && data?.budget_status && (
+        <BudgetBanner
+          status={data.budget_status}
+          onDismiss={() => setBudgetDismissed(true)}
+        />
+      )}
 
       <StatsBar stats={stats} timeRange={timeRange} sessions={sorted} />
       <section className="trends">

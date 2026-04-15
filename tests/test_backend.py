@@ -1120,6 +1120,55 @@ def test_api_projects_returns_list(tmp_path, monkeypatch):
     assert isinstance(data, list)
 
 
+# ─── Budget Guardrails ───────────────────────────────────────────────────────
+
+def test_check_budget_status_no_budgets():
+    result = backend.check_budget_status({"cost_today_usd": 5.0, "cost_week_usd": 20.0}, {})
+    assert result["daily"] is None
+    assert result["weekly"] is None
+
+def test_check_budget_status_daily_under():
+    result = backend.check_budget_status({"cost_today_usd": 5.0, "cost_week_usd": 0.0}, {"daily_budget_usd": 10.0})
+    assert result["daily"]["exceeded"] is False
+    assert result["daily"]["pct"] == 50.0
+
+def test_check_budget_status_daily_exceeded():
+    result = backend.check_budget_status({"cost_today_usd": 12.0, "cost_week_usd": 0.0}, {"daily_budget_usd": 10.0})
+    assert result["daily"]["exceeded"] is True
+    assert result["daily"]["pct"] == 120.0
+
+def test_check_budget_status_weekly():
+    result = backend.check_budget_status({"cost_today_usd": 0.0, "cost_week_usd": 55.0}, {"weekly_budget_usd": 50.0})
+    assert result["weekly"]["exceeded"] is True
+
+def test_validate_flag_path_outside_claude_dir():
+    with pytest.raises(ValueError):
+        backend.validate_flag_path("/etc/evil")
+
+def test_validate_flag_path_none_for_empty():
+    assert backend.validate_flag_path("") is None
+
+def test_validate_flag_path_rejects_prefix_bypass(tmp_path):
+    """~/.claude_evil/ must be rejected — startswith prefix bypass"""
+    # Construct a path that starts with ~/.claude text but is a sibling dir
+    home = Path.home()
+    evil_path = str(home / ".claude_evil" / "budget-exceeded.flag")
+    with pytest.raises(ValueError):
+        backend.validate_flag_path(evil_path)
+
+def test_cost_week_usd_in_global_stats(tmp_path):
+    from datetime import UTC, datetime, timedelta
+    now = datetime.now(UTC)
+    recent = (now - timedelta(days=3)).isoformat()
+    old = (now - timedelta(days=10)).isoformat()
+    sessions = [
+        {"stats": {"estimated_cost_usd": 5.0, "total_tokens": 100, "input_tokens": 50, "output_tokens": 50, "cache_create_tokens": 0, "cache_read_tokens": 0}, "last_active": recent, "is_active": False, "model": "claude-sonnet-4-6", "turns": 1, "subagent_count": 0},
+        {"stats": {"estimated_cost_usd": 3.0, "total_tokens": 100, "input_tokens": 50, "output_tokens": 50, "cache_create_tokens": 0, "cache_read_tokens": 0}, "last_active": old, "is_active": False, "model": "claude-sonnet-4-6", "turns": 1, "subagent_count": 0},
+    ]
+    stats = backend.compute_global_stats(sessions, 24 * 30)
+    assert stats["cost_week_usd"] == 5.0
+
+
 # ─── Batch Operations ────────────────────────────────────────────────────────
 
 def test_batch_export_empty_session_ids():
