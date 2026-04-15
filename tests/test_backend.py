@@ -1148,6 +1148,14 @@ def test_validate_flag_path_outside_claude_dir():
 def test_validate_flag_path_none_for_empty():
     assert backend.validate_flag_path("") is None
 
+def test_validate_flag_path_rejects_prefix_bypass(tmp_path):
+    """~/.claude_evil/ must be rejected — startswith prefix bypass"""
+    # Construct a path that starts with ~/.claude text but is a sibling dir
+    home = Path.home()
+    evil_path = str(home / ".claude_evil" / "budget-exceeded.flag")
+    with pytest.raises(ValueError):
+        backend.validate_flag_path(evil_path)
+
 def test_cost_week_usd_in_global_stats(tmp_path):
     from datetime import UTC, datetime, timedelta
     now = datetime.now(UTC)

@@ -150,7 +150,8 @@ def validate_flag_path(raw: str) -> "Path | None":
     if not raw:
         return None
     p = Path(raw).expanduser().resolve()
-    if not str(p).startswith(str(Path.home() / ".claude")):
+    claude_dir = (Path.home() / ".claude").resolve()
+    if not p.is_relative_to(claude_dir):
         raise ValueError("budget_flag_path must be within ~/.claude/")
     return p
 
@@ -1129,12 +1130,14 @@ def compute_global_stats(sessions: list[dict], time_range_hours: int = 24) -> di
     )
 
     one_week_ago = now - timedelta(days=7)
-    cost_week_usd = sum(
-        s["stats"]["estimated_cost_usd"]
-        for s in sessions
-        if s.get("last_active") and
-           datetime.fromisoformat(_normalize_ts(s["last_active"])) >= one_week_ago
-    )
+    cost_week_usd = 0.0
+    for s in sessions:
+        try:
+            la = s.get("last_active")
+            if la and datetime.fromisoformat(_normalize_ts(la)) >= one_week_ago:
+                cost_week_usd += s["stats"]["estimated_cost_usd"]
+        except (ValueError, KeyError):
+            pass
 
     return {
         "total_sessions": len(sessions),
