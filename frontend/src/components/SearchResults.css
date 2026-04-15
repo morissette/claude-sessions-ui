@@ -4,8 +4,10 @@
 .search-results__empty { color: var(--text-muted); padding: 2rem; text-align: center; }
 .search-results__count { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 .search-results__list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-.search-result { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; cursor: pointer; }
+.search-result { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
 .search-result:hover { border-color: var(--color-accent); }
+/* Reset button so it inherits the card's appearance and fills the full li */
+.search-result button { display: block; width: 100%; padding: 0.75rem; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .search-result__header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
 .search-result__title { font-weight: 600; font-size: 0.9rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search-result__project { font-size: 0.75rem; color: var(--text-muted); }

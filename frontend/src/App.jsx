@@ -81,18 +81,30 @@ export default function App() {
 
   useEffect(() => {
     if (!searchQuery.trim()) { setSearchResults(null); return }
+    // AbortController lets us cancel the in-flight fetch when the query changes
+    // before the response arrives, so stale results never overwrite fresh ones.
+    const controller = new AbortController()
     const t = setTimeout(async () => {
       setSearchLoading(true)
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&time_range=${timeRange}`)
+        const res = await fetch(
+          `/api/search?q=${encodeURIComponent(searchQuery)}&time_range=${timeRange}`,
+          { signal: controller.signal },
+        )
         const data = await res.json()
         setSearchResults(data)
-      } catch {
-        setSearchResults({ query: searchQuery, results: [], total: 0, index_ready: true })
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setSearchResults({ query: searchQuery, results: [], total: 0, index_ready: true })
+        }
       }
-      setSearchLoading(false)
+      // Only clear the loading spinner for non-aborted requests; the replacement
+      // effect invocation will set it back to true immediately after aborting.
+      if (!controller.signal.aborted) {
+        setSearchLoading(false)
+      }
     }, 300)
-    return () => clearTimeout(t)
+    return () => { clearTimeout(t); controller.abort() }
   }, [searchQuery, timeRange])
 
   const sessions = data.sessions || []

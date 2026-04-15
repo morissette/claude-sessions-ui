@@ -257,6 +257,13 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             rows,
         )
         _db_conn.commit()
+        # Keep the FTS index in sync so new/updated sessions are searchable
+        # immediately without waiting for the next full backfill.
+        for s in sessions:
+            jsonl_path = find_session_file(s["session_id"])
+            if jsonl_path is not None:
+                _sync_fts(_db_conn, s["session_id"], jsonl_path)
+        _db_conn.commit()
 
 
 def get_sessions_from_db(hours: int) -> list[dict]:
@@ -452,16 +459,21 @@ async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
             with _db_lock:
                 if _db_conn is None:
                     return []
+                # JOIN sessions to fetch project_name/title in the same query,
+                # avoiding an N+1 per-row lookup. bm25() is the correct FTS5
+                # ranking function; the bare `rank` column does not exist on
+                # FTS5 tables and raises OperationalError at runtime.
                 rows = _db_conn.execute(
                     """
                     SELECT sm.session_id, sm.role, sm.ts,
                            snippet(session_messages, 2, '**', '**', '...', 16) AS snip,
-                           rank
+                           bm25(session_messages),
+                           s.project_name, s.title
                     FROM session_messages sm
                     JOIN sessions s ON sm.session_id = s.session_id
                     WHERE session_messages MATCH ?
                       AND s.last_active >= ?
-                    ORDER BY rank
+                    ORDER BY bm25(session_messages)
                     LIMIT ?
                     """,
                     (query, cutoff.isoformat(), limit),
@@ -472,19 +484,11 @@ async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
 
     rows = await asyncio.get_event_loop().run_in_executor(None, _query_db)
     results: list[dict] = []
-    for sid, role, ts, snip, score in rows:
-        session_info: dict = {}
-        with _db_lock:
-            if _db_conn is not None:
-                row = _db_conn.execute(
-                    "SELECT project_name, title FROM sessions WHERE session_id = ?", (sid,)
-                ).fetchone()
-                if row:
-                    session_info = {"project_name": row[0], "session_title": row[1]}
+    for sid, role, ts, snip, score, project_name, session_title in rows:
         results.append({
             "session_id": sid,
-            "project_name": session_info.get("project_name", ""),
-            "session_title": session_info.get("session_title", ""),
+            "project_name": project_name or "",
+            "session_title": session_title or "",
             "role": role,
             "snippet": snip or "",
             "ts": ts,
