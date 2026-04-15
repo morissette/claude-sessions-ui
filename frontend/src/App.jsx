@@ -3,6 +3,7 @@ import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
+import MemoryExplorer from './components/MemoryExplorer'
 import './App.css'
 
 const TIME_RANGES = [
@@ -17,6 +18,7 @@ const TIME_RANGES = [
 
 export default function App() {
   const [data, setData] = useState({ sessions: [], stats: {}, savings: {}, truncation: {} })
+  const [viewMode, setViewMode] = useState('sessions')
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState('activity') // activity | cost | turns
   const [timeRange, setTimeRange] = useState('1d')
@@ -184,31 +186,45 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        <div className="view-controls">
+          <button
+            className={`toolbar__view-btn ${viewMode === 'sessions' ? 'active' : ''}`}
+            onClick={() => setViewMode('sessions')}
+          >Sessions</button>
+          <button
+            className={`toolbar__view-btn ${viewMode === 'memory' ? 'active' : ''}`}
+            onClick={() => setViewMode('memory')}
+          >Memory</button>
+        </div>
       </div>
 
       <main className="sessions-container">
-        {sorted.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">◇</div>
-            <p className="empty-title">No sessions found</p>
-            <p className="empty-sub">
-              {filter !== 'all'
-                ? `No ${filter} sessions — try "All"`
-                : 'Start a Claude Code session to see it here'}
-            </p>
-          </div>
-        ) : (
-          <div className="sessions-grid">
-            {sorted.map(session => (
-              <SessionCard
-                key={session.session_id}
-                session={session}
-                ollama={ollama}
-                onSelect={setSelectedSessionId}
-              />
-            ))}
-          </div>
-        )}
+        {viewMode === 'memory'
+          ? <MemoryExplorer />
+          : sorted.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">◇</div>
+              <p className="empty-title">No sessions found</p>
+              <p className="empty-sub">
+                {filter !== 'all'
+                  ? `No ${filter} sessions — try "All"`
+                  : 'Start a Claude Code session to see it here'}
+              </p>
+            </div>
+          ) : (
+            <div className="sessions-grid">
+              {sorted.map(session => (
+                <SessionCard
+                  key={session.session_id}
+                  session={session}
+                  ollama={ollama}
+                  onSelect={setSelectedSessionId}
+                />
+              ))}
+            </div>
+          )
+        }
       </main>
 
       {selectedSessionId && (

@@ -198,6 +198,37 @@
   border-color: rgba(0, 212, 255, 0.25);
 }
 
+.view-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.toolbar__view-btn {
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-family: inherit;
+}
+
+.toolbar__view-btn:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.toolbar__view-btn.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: rgba(0, 212, 255, 0.25);
+}
+
 /* ── Sessions grid ───────────────────────────────────────── */
 
 .sessions-container {

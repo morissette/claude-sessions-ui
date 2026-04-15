@@ -885,3 +885,32 @@ class TestExportSkill:
         with TestClient(backend.app) as client:
             response = client.post("/api/sessions/doesnotexist/export-skill")
         assert response.status_code == 404
+
+
+# ─── Memory Explorer ─────────────────────────────────────────────────────────
+
+
+class TestValidateMemoryPath:
+    def test_valid_path(self):
+        import pathlib
+        # Should not raise
+        result = backend.validate_memory_path("memory/test.md")
+        assert isinstance(result, pathlib.Path)
+
+    def test_dotdot_traversal(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("memory/../../etc/passwd")
+        assert exc_info.value.status_code == 403
+
+    def test_null_byte_injection(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("memory/\x00evil")
+        assert exc_info.value.status_code == 403
+
+    def test_non_allowlisted_directory(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("random_dir/file.txt")
+        assert exc_info.value.status_code == 403
