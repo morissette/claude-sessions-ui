@@ -41,7 +41,7 @@ async def backfill_fts() -> None:
                     )
                     database._db_conn.commit()
 
-        await asyncio.get_event_loop().run_in_executor(None, _run)
+        await asyncio.get_running_loop().run_in_executor(None, _run)
         logger.info("FTS backfill complete")
     except Exception:
         logger.exception("FTS backfill failed")
@@ -80,7 +80,7 @@ async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
         except Exception:
             return []
 
-    rows = await asyncio.get_event_loop().run_in_executor(None, _query_db)
+    rows = await asyncio.get_running_loop().run_in_executor(None, _query_db)
     results: list[dict] = []
     for sid, role, ts, snip, score, project_name, session_title in rows:
         results.append({
@@ -150,4 +150,4 @@ async def search_jsonl_live(query: str, cutoff: datetime, limit: int) -> list[di
                 continue
         return results
 
-    return await asyncio.get_event_loop().run_in_executor(None, _scan)
+    return await asyncio.get_running_loop().run_in_executor(None, _scan)

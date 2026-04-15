@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Python runtime
-FROM python:3.11-slim
+FROM python:3.14-slim
 WORKDIR /app
 
 # Install pipenv and Python deps from lock file

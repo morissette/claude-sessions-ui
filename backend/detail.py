@@ -294,7 +294,7 @@ async def parse_session_analytics(session_id: str) -> dict | None:
             },
         }
 
-    result = await asyncio.get_event_loop().run_in_executor(None, _parse)
+    result = await asyncio.get_running_loop().run_in_executor(None, _parse)
     if result:
         _analytics_cache[cache_key] = (mtime, result)
     return result
