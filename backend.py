@@ -124,6 +124,38 @@ def write_config(data: dict) -> None:
     _config_cache = None  # invalidate cache
 
 
+def check_budget_status(stats: dict, config: dict) -> dict:
+    daily_limit  = config.get("daily_budget_usd")
+    weekly_limit = config.get("weekly_budget_usd")
+    daily_spent  = stats.get("cost_today_usd", 0.0)
+    weekly_spent = stats.get("cost_week_usd",  0.0)
+
+    def make_entry(limit, spent):
+        if limit is None:
+            return None
+        return {
+            "limit":    limit,
+            "spent":    spent,
+            "exceeded": spent >= limit,
+            "pct":      round(spent / limit * 100, 1) if limit > 0 else 0,
+        }
+
+    return {
+        "daily":  make_entry(daily_limit, daily_spent),
+        "weekly": make_entry(weekly_limit, weekly_spent),
+    }
+
+
+def validate_flag_path(raw: str) -> "Path | None":
+    if not raw:
+        return None
+    p = Path(raw).expanduser().resolve()
+    claude_dir = (Path.home() / ".claude").resolve()
+    if not p.is_relative_to(claude_dir):
+        raise ValueError("budget_flag_path must be within ~/.claude/")
+    return p
+
+
 CLAUDE_BASE_DIR = Path.home() / ".claude"
 
 MEMORY_ALLOWLIST = [
@@ -1082,7 +1114,8 @@ def compute_global_stats(sessions: list[dict], time_range_hours: int = 24) -> di
     total_turns = sum(s["turns"] for s in sessions)
     total_subagents = sum(s["subagent_count"] for s in sessions)
 
-    period_cutoff = datetime.now(UTC) - timedelta(hours=time_range_hours)
+    now = datetime.now(UTC)
+    period_cutoff = now - timedelta(hours=time_range_hours)
     def _in_period(ts: str | None) -> bool:
         if not ts:
             return False
@@ -1096,11 +1129,22 @@ def compute_global_stats(sessions: list[dict], time_range_hours: int = 24) -> di
         if _in_period(s.get("last_active"))
     )
 
+    one_week_ago = now - timedelta(days=7)
+    cost_week_usd = 0.0
+    for s in sessions:
+        try:
+            la = s.get("last_active")
+            if la and datetime.fromisoformat(_normalize_ts(la)) >= one_week_ago:
+                cost_week_usd += s["stats"]["estimated_cost_usd"]
+        except (ValueError, KeyError):
+            pass
+
     return {
         "total_sessions": len(sessions),
         "active_sessions": active_count,
         "total_cost_usd": round(total_cost, 4),
         "cost_today_usd": round(cost_today_val, 4),
+        "cost_week_usd": round(cost_week_usd, 4),
         "total_tokens": total_tokens,
         "total_input_tokens": total_input,
         "total_output_tokens": total_output,
@@ -1803,11 +1847,14 @@ async def get_config():
 
 @app.put("/api/config")
 async def put_config(body: dict):
-    allowed_keys = {"daily_budget_usd", "weekly_budget_usd"}
+    allowed_keys = {"daily_budget_usd", "weekly_budget_usd", "budget_flag_path"}
     config = read_config()
     for k, v in body.items():
         if k in allowed_keys:
-            config[k] = float(v) if v is not None else None
+            if k == "budget_flag_path":
+                config[k] = str(v) if v is not None else None
+            else:
+                config[k] = float(v) if v is not None else None
     write_config(config)
     return config
 
@@ -2152,12 +2199,34 @@ async def websocket_endpoint(
             # still running to prevent an unbounded backlog of write tasks.
             if hours is not None and hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
                 upsert_task = asyncio.create_task(_upsert_in_background(sess))
+            config = read_config()
+            budget_status = check_budget_status(stats, config)
+
+            # Optional flag file
+            raw_flag = config.get("budget_flag_path")
+            if raw_flag:
+                try:
+                    flag_path = validate_flag_path(raw_flag)
+                    if flag_path:
+                        any_exceeded = (
+                            (budget_status["daily"]  and budget_status["daily"]["exceeded"]) or
+                            (budget_status["weekly"] and budget_status["weekly"]["exceeded"])
+                        )
+                        if any_exceeded:
+                            flag_path.touch()
+                        elif flag_path.exists():
+                            with contextlib.suppress(FileNotFoundError):
+                                flag_path.unlink()
+                except (ValueError, OSError):
+                    pass
+
             await ws.send_json({
                 "sessions": sess,
                 "stats": stats,
                 "savings": compute_ollama_savings(),
                 "truncation": compute_truncation_savings(),
                 "time_range": time_range,
+                "budget_status": budget_status,
             })
             # Live ranges poll fast; historical/all/custom ranges poll slower
             if hours is not None and hours <= LIVE_HOURS:
