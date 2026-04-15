@@ -30,7 +30,7 @@ def get_session_cwd(jsonl_path: Path) -> str | None:
     if key in _cwd_cache and _cwd_cache[key][0] == mtime:
         return _cwd_cache[key][1]
     try:
-        with open(jsonl_path) as f:
+        with open(jsonl_path, encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
                 if i > 25:
                     break
@@ -68,7 +68,7 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
     last_timestamp: str | None = None
 
     try:
-        with open(jsonl_path) as f:
+        with open(jsonl_path, encoding="utf-8", errors="replace") as f:
             for raw_line in f:
                 raw_line = raw_line.strip()
                 if not raw_line:

@@ -5,7 +5,7 @@ import json
 from datetime import date as date_type
 from datetime import timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from backend import aggregation, config, constants, database
 
@@ -26,8 +26,8 @@ async def get_projects(time_range: str = "1d"):
 
 
 @router.get("/api/trends")
-async def get_trends(range: str = "4w"):
-    days = _parse_trend_range(range)
+async def get_trends(range_: str = Query(default="4w", alias="range")):
+    days = _parse_trend_range(range_)
     cutoff = (date_type.today() - timedelta(days=days)).isoformat()
 
     def _query():

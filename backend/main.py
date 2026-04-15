@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-# Import the app from backend_compat so it carries all routes and lifespan
-import backend_compat
 import uvicorn
+
+from backend.app import app  # noqa: F401 — imported so uvicorn.run resolves "backend.app:app"
 
 LOG_FILE = str(Path.home() / ".claude" / "claude-sessions-ui.log")
 log_config = {
@@ -31,4 +31,4 @@ log_config = {
 }
 
 if __name__ == "__main__":
-    uvicorn.run(backend_compat.app, host="0.0.0.0", port=8765, reload=False, log_config=log_config)
+    uvicorn.run("backend.app:app", host="0.0.0.0", port=8765, reload=False, log_config=log_config)

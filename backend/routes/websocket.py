@@ -2,10 +2,13 @@
 
 import asyncio
 import contextlib
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend import aggregation, config, constants, database, metrics, ollama
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -25,13 +28,13 @@ async def websocket_endpoint(
     # Validate custom date params before accepting
     if start:
         try:
-            datetime.fromisoformat(start)
+            datetime.fromisoformat(constants._normalize_ts(start))
         except ValueError:
             await ws.close(code=1008, reason="Invalid start date")
             return
     if end:
         try:
-            datetime.fromisoformat(end)
+            datetime.fromisoformat(constants._normalize_ts(end))
         except ValueError:
             await ws.close(code=1008, reason="Invalid end date")
             return
@@ -93,7 +96,7 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         pass
     except Exception:
-        pass
+        log.exception("Unexpected error in WebSocket loop")
     finally:
         if ws in _active_ws:
             _active_ws.remove(ws)

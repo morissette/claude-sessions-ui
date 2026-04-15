@@ -90,10 +90,10 @@ async def search_sessions(q: str = "", time_range: str = "1d", limit: int = 20):
 
     limit = max(1, min(100, limit))
     hours = constants.TIME_RANGE_HOURS.get(time_range, 24)
-    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    cutoff = None if hours is None else datetime.now(UTC) - timedelta(hours=hours)
 
     try:
-        if hours <= constants.LIVE_HOURS:
+        if hours is not None and hours <= constants.LIVE_HOURS:
             results = await fts.search_jsonl_live(q, cutoff, limit)
         else:
             results = await fts.search_fts(q, cutoff, limit)

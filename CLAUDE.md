@@ -119,6 +119,6 @@ Both must pass before merge. Ruff is strict (rules: E, W, F, I, UP, B, C4, SIM),
 - No TypeScript — plain JavaScript throughout.
 - No ORM. SQLite is the only persistence layer and is a derived cache — never the source of truth.
 - Ollama features must always degrade gracefully.
-- When adding new Claude models, add them to `MODEL_PRICING` in `backend/constants.py` and add a test in `tests/test_backend.py`.
+- When adding new Claude models, add them to `MODEL_PRICING` in `backend/constants.py` and add a test in `tests/test_constants.py`.
 - When adding new time ranges, update `TIME_RANGE_HOURS` in `backend/constants.py` AND `TIME_RANGES` in `frontend/src/App.jsx`.
 - Run `ruff check` and `pytest` locally before pushing — CI will reject failures.

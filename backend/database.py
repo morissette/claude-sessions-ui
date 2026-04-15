@@ -249,10 +249,10 @@ def get_sessions_from_db(
 
     if start:
         conditions.append("last_active >= ?")
-        params.append(start)
+        params.append(constants._normalize_ts(start))
     if end:
         conditions.append("last_active <= ?")
-        params.append(end)
+        params.append(constants._normalize_ts(end))
     if hours is not None and not start and not end:
         cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
         conditions.append("last_active >= ?")
