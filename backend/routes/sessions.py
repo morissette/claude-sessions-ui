@@ -3,6 +3,7 @@
 import asyncio
 import io
 import json
+import logging
 import re
 import zipfile
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,8 @@ from backend import (
     parsing,
     skills,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -98,6 +101,7 @@ async def search_sessions(q: str = "", time_range: str = "1d", limit: int = 20):
         else:
             results = await fts.search_fts(q, cutoff, limit)
     except Exception:
+        log.exception("Search failed for query %r", q)
         results = []
 
     return {
@@ -189,7 +193,11 @@ async def export_skill(session_id: str, scope: str = "global"):
     except Exception:
         name, body = skills.template_generate_skill(skill_data)
     skill_path = skills.resolve_skill_path(name, scope)
-    frontmatter = f"---\nname: {name}\ndescription: {skill_data['title']}\n---\n\n"
+    # Sanitize title for YAML frontmatter: strip newlines and characters
+    # that would break the inline scalar (colons, leading dashes/hashes).
+    safe_title = re.sub(r"[\r\n]+", " ", skill_data["title"]).strip()
+    safe_title = re.sub(r"[^\x20-\x7E]", "", safe_title)  # drop non-printable ASCII
+    frontmatter = f"---\nname: {name}\ndescription: {safe_title!r}\n---\n\n"
     skill_path.write_text(frontmatter + body, encoding="utf-8")
     return {
         "skill_name": name,

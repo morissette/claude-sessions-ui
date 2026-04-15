@@ -137,10 +137,9 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
         return None
 
     if not first_timestamp:
-        stat = jsonl_path.stat()
-        first_timestamp = datetime.fromtimestamp(
-            stat.st_ctime, tz=UTC
-        ).isoformat()
+        # Reuse the mtime already fetched above — st_ctime on Linux is
+        # change-time (not creation time) and can be misleading.
+        first_timestamp = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
     pricing = constants.MODEL_PRICING.get(model or "", constants.MODEL_PRICING["default"])
     cost = (

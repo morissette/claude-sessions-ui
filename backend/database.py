@@ -26,8 +26,14 @@ _db_lock = threading.Lock()
 
 @contextlib.contextmanager
 def get_db():
-    """Yield the shared SQLite connection under the write lock."""
+    """Yield the shared SQLite connection under the write lock.
+
+    Raises RuntimeError if the DB has not been initialized yet.
+    Callers should guard with a try/except or check _db_conn first.
+    """
     with _db_lock:
+        if _db_conn is None:
+            raise RuntimeError("Database not initialized")
         yield _db_conn
 
 

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest  # noqa: F401
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from backend import aggregation, constants, database, metrics, ollama
 

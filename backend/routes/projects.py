@@ -31,12 +31,15 @@ async def get_trends(range_: str = Query(default="4w", alias="range")):
     cutoff = (date_type.today() - timedelta(days=days)).isoformat()
 
     def _query():
-        with database.get_db() as conn:
-            return conn.execute(
-                "SELECT date, total_cost_usd, model_breakdown, session_count "
-                "FROM daily_costs WHERE date >= ? ORDER BY date",
-                (cutoff,),
-            ).fetchall()
+        try:
+            with database.get_db() as conn:
+                return conn.execute(
+                    "SELECT date, total_cost_usd, model_breakdown, session_count "
+                    "FROM daily_costs WHERE date >= ? ORDER BY date",
+                    (cutoff,),
+                ).fetchall()
+        except RuntimeError:
+            return []
 
     rows = await asyncio.get_running_loop().run_in_executor(None, _query)
     cfg = config.read_config()
