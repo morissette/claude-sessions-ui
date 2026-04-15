@@ -16,13 +16,15 @@ const PREFS_DEFAULTS = {
 }
 
 const TIME_RANGES = [
-  { id: '1h', label: '1h' },
-  { id: '1d', label: '1d' },
-  { id: '3d', label: '3d' },
-  { id: '1w', label: '1w' },
-  { id: '2w', label: '2w' },
-  { id: '1m', label: '1m' },
-  { id: '6m', label: '6m' },
+  { id: '1h',    label: '1h' },
+  { id: '1d',    label: '1d' },
+  { id: '3d',    label: '3d' },
+  { id: '1w',    label: '1w' },
+  { id: '2w',    label: '2w' },
+  { id: '1m',    label: '1m' },
+  { id: '6m',    label: '6m' },
+  { id: 'all',   label: 'All' },
+  { id: 'custom', label: 'Custom' },
 ]
 
 export default function App() {
@@ -46,13 +48,33 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd]     = useState('')
+  const [customError, setCustomError] = useState('')
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const intentionalCloseRef = useRef(false)
 
+  function buildWsUrl(tr, cs, ce) {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const base = `${proto}://${window.location.host}/ws?time_range=${tr}`
+    if (tr === 'custom' && cs && ce) {
+      return `${base}&start=${cs}T00:00:00Z&end=${ce}T23:59:59Z`
+    }
+    return base
+  }
+
+  function validateCustomRange(start, end) {
+    const today = new Date().toISOString().slice(0, 10)
+    if (!start || !end) return 'Both dates are required'
+    if (end < start)    return 'End date must be after start date'
+    if (end > today)    return 'End date cannot be in the future'
+    return ''
+  }
+
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws?time_range=${timeRange}`
+    const wsUrl = buildWsUrl(timeRange, customStart, customEnd)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onopen = () => {
@@ -76,7 +98,7 @@ export default function App() {
         setLastUpdate(new Date())
       } catch {}
     }
-  }, [timeRange])
+  }, [timeRange, customStart, customEnd])
 
   useEffect(() => {
     intentionalCloseRef.current = true
@@ -188,6 +210,18 @@ export default function App() {
               {r.label}
             </button>
           ))}
+          {timeRange === 'custom' && (
+            <span className="toolbar__date-range">
+              <input type="date" value={customStart}
+                     onChange={e => { setCustomStart(e.target.value); setCustomError(validateCustomRange(e.target.value, customEnd)) }}
+                     max={customEnd || new Date().toISOString().slice(0,10)} />
+              <span>–</span>
+              <input type="date" value={customEnd}
+                     onChange={e => { setCustomEnd(e.target.value); setCustomError(validateCustomRange(customStart, e.target.value)) }}
+                     min={customStart} max={new Date().toISOString().slice(0,10)} />
+              {customError && <span className="toolbar__date-error">{customError}</span>}
+            </span>
+          )}
         </div>
 
         <div className="sort-controls">

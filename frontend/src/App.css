@@ -198,6 +198,20 @@
   border-color: rgba(0, 212, 255, 0.25);
 }
 
+/* ── Date range picker ───────────────────────────────────── */
+
+.toolbar__date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.toolbar__date-error {
+  color: var(--color-error, #ef4444);
+  font-size: 0.75rem;
+}
+
 /* ── Sessions grid ───────────────────────────────────────── */
 
 .sessions-container {
