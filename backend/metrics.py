@@ -2,23 +2,22 @@
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,  # noqa: F401 — re-exported for callers
+    Gauge,
     generate_latest,  # noqa: F401 — re-exported for callers
 )
 
-# Import the gauge objects from backend_compat so we never double-register them.
-# backend_compat owns the Gauge definitions; this module provides _update_prometheus.
-from backend_compat import (
-    cost_today,
-    cost_total,
-    sessions_active,
-    sessions_total,
-    subagents_total,
-    tokens_cache_create,
-    tokens_cache_read,
-    tokens_input,
-    tokens_output,
-    turns_total,
-)
+# ─── Gauge definitions ────────────────────────────────────────────────────────
+
+sessions_total = Gauge("claude_sessions_total", "Total Claude sessions scanned")
+sessions_active = Gauge("claude_sessions_active", "Currently active Claude sessions")
+tokens_input = Gauge("claude_tokens_input_total", "Total input tokens across all sessions")
+tokens_output = Gauge("claude_tokens_output_total", "Total output tokens across all sessions")
+tokens_cache_create = Gauge("claude_tokens_cache_create_total", "Total cache-creation tokens")
+tokens_cache_read = Gauge("claude_tokens_cache_read_total", "Total cache-read tokens")
+cost_total = Gauge("claude_cost_usd_total", "Estimated total cost USD across all sessions")
+cost_today = Gauge("claude_cost_usd_today", "Estimated cost USD for today")
+turns_total = Gauge("claude_turns_total", "Total conversation turns across all sessions")
+subagents_total = Gauge("claude_subagents_total", "Total subagents spawned across all sessions")
 
 # ─── Prometheus metrics ───────────────────────────────────────────────────────
 

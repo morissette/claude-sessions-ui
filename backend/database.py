@@ -317,7 +317,7 @@ def get_sessions_for_range(
     end: str | None = None,
 ) -> list[dict]:
     """Dispatch to JSONL (short ranges) or SQLite (historical ranges)."""
-    from backend_compat import get_all_sessions  # noqa: PLC0415 — avoids circular import
+    from backend.aggregation import get_all_sessions  # noqa: PLC0415 — avoids circular import
 
     hours = constants.TIME_RANGE_HOURS.get(time_range, 24)
 
@@ -337,14 +337,14 @@ def get_sessions_for_range(
 
 def get_all_sessions_unbounded() -> list[dict]:
     """Parse all JSONL sessions regardless of age — used for startup DB backfill."""
-    from backend_compat import get_all_sessions  # noqa: PLC0415 — avoids circular import
+    from backend.aggregation import get_all_sessions  # noqa: PLC0415 — avoids circular import
 
     return get_all_sessions(hours=None)
 
 
 def get_session_by_id(session_id: str) -> dict | None:
     """Return a single session dict by ID, checking SQLite first then JSONL fallback."""
-    from backend_compat import get_all_sessions  # noqa: PLC0415 — avoids circular import
+    from backend.aggregation import get_all_sessions  # noqa: PLC0415 — avoids circular import
 
     # Try SQLite first (covers historical sessions not in the live 24h window)
     if _db_conn is not None:
