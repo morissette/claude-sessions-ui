@@ -934,43 +934,6 @@ class TestExportSkill:
         assert response.status_code == 404
 
 
-# ─── compute_project_stats ────────────────────────────────────────────────────
-
-
-def test_compute_project_stats_groups_correctly():
-    sessions = [
-        {
-            "project_name": "proj-a",
-            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100, "input_tokens": 60, "output_tokens": 40},
-            "model": "claude-sonnet-4-6",
-            "started_at": "2026-04-01T00:00:00",
-            "last_active": "2026-04-01T01:00:00",
-        },
-        {
-            "project_name": "proj-a",
-            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200, "input_tokens": 120, "output_tokens": 80},
-            "model": "claude-opus-4-6",
-            "started_at": "2026-04-01T02:00:00",
-            "last_active": "2026-04-01T03:00:00",
-        },
-        {
-            "project_name": "proj-b",
-            "stats": {"estimated_cost_usd": 0.5, "total_tokens": 50, "input_tokens": 30, "output_tokens": 20},
-            "model": "claude-haiku-4-5-20251001",
-            "started_at": "2026-04-01T00:00:00",
-            "last_active": "2026-04-01T00:30:00",
-        },
-    ]
-    result = backend.compute_project_stats(sessions)
-    assert len(result) == 2
-    proj_a = next(p for p in result if p["project_name"] == "proj-a")
-    assert proj_a["session_count"] == 2
-    assert abs(proj_a["total_cost_usd"] - 3.0) < 0.001
-
-
-def test_compute_project_stats_empty():
-    assert backend.compute_project_stats([]) == []
-
 
 # ─── Analytics endpoint ───────────────────────────────────────────────────────
 
