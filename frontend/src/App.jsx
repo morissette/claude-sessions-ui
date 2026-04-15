@@ -3,6 +3,7 @@ import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
+import SearchResults from './components/SearchResults'
 import MemoryExplorer from './components/MemoryExplorer'
 import { usePersistedState } from './hooks/usePersistedState.js'
 import { ProjectList } from './components/ProjectCard'
@@ -51,6 +52,9 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd]     = useState('')
   const [customError, setCustomError] = useState('')
@@ -125,6 +129,34 @@ export default function App() {
     const id = setInterval(checkOllama, 15000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults(null); return }
+    // AbortController lets us cancel the in-flight fetch when the query changes
+    // before the response arrives, so stale results never overwrite fresh ones.
+    const controller = new AbortController()
+    const t = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const res = await fetch(
+          `/api/search?q=${encodeURIComponent(searchQuery)}&time_range=${timeRange}`,
+          { signal: controller.signal },
+        )
+        const data = await res.json()
+        setSearchResults(data)
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setSearchResults({ query: searchQuery, results: [], total: 0, index_ready: true })
+        }
+      }
+      // Only clear the loading spinner for non-aborted requests; the replacement
+      // effect invocation will set it back to true immediately after aborting.
+      if (!controller.signal.aborted) {
+        setSearchLoading(false)
+      }
+    }, 300)
+    return () => { clearTimeout(t); controller.abort() }
+  }, [searchQuery, timeRange])
 
   useEffect(() => {
     if (viewMode !== 'projects') return
@@ -242,6 +274,14 @@ export default function App() {
           </button>
         </div>
 
+        <input
+          className="toolbar__search"
+          type="search"
+          placeholder="Search sessions…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+
         <div className="time-range-tabs">
           <span className="sort-label">Range</span>
           {TIME_RANGES.map(r => (
@@ -297,7 +337,9 @@ export default function App() {
       </div>
 
       <main className="sessions-container">
-        {viewMode === 'memory'
+        {searchResults !== null
+          ? <SearchResults results={searchResults} loading={searchLoading} onSelect={setSelectedSessionId} />
+          : viewMode === 'memory'
           ? <MemoryExplorer />
           : viewMode === 'projects'
           ? <ProjectList projects={projectData} onSelect={handleProjectSelect} />

@@ -952,6 +952,20 @@ def test_analytics_invalid_session_id():
     assert resp.status_code in (400, 404, 422)
 
 
+# ─── Search endpoint ──────────────────────────────────────────────────────────
+
+
+def test_search_empty_query(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/search?q=&time_range=1d")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["results"] == []
+    assert data["total"] == 0
+
+
 # ─── Memory Explorer ─────────────────────────────────────────────────────────
 
 
