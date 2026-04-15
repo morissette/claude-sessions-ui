@@ -1,0 +1,24 @@
+.memory-explorer { display: grid; grid-template-columns: 260px 1fr; height: calc(100vh - 200px); min-height: 400px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.memory-tree { overflow-y: auto; border-right: 1px solid var(--border); background: var(--surface); padding: 0.5rem 0; }
+.memory-tree__loading { color: var(--text-muted); padding: 0.75rem; font-size: 0.85rem; }
+.memory-tree__dir { }
+.memory-tree__dir-btn { display: flex; align-items: center; gap: 0.35rem; width: 100%; background: none; border: none; cursor: pointer; padding: 0.3rem 0.5rem; font-size: 0.85rem; color: var(--text); text-align: left; }
+.memory-tree__dir-btn:hover { background: var(--border); }
+.memory-tree__chevron { font-size: 0.6rem; width: 10px; display: inline-block; }
+.memory-tree__file { display: block; width: 100%; background: none; border: none; cursor: pointer; padding: 0.25rem 0.5rem; font-size: 0.8rem; color: var(--text-muted); text-align: left; }
+.memory-tree__file:hover { background: var(--border); color: var(--text); }
+.memory-tree__file--selected { background: var(--color-accent-light, #e0f2fe); color: var(--text); }
+.memory-content { overflow-y: auto; background: var(--bg, var(--surface)); }
+.memory-content__loading { color: var(--text-muted); padding: 1.5rem; }
+.memory-content__placeholder { color: var(--text-muted); padding: 2rem; text-align: center; font-size: 0.9rem; }
+.memory-content__inner { padding: 1rem 1.5rem; }
+.memory-content__meta { margin-bottom: 0.75rem; }
+.memory-content__filename { font-weight: 600; font-size: 0.95rem; display: block; }
+.memory-content__info { font-size: 0.75rem; color: var(--text-muted); }
+.memory-content__truncation { background: var(--color-warning-bg, #fef3c7); padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.8rem; margin-bottom: 0.75rem; }
+.memory__raw { font-family: var(--font-mono, monospace); font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+.memory-md { font-size: 0.9rem; line-height: 1.6; }
+.memory-md__heading { margin: 1rem 0 0.4rem; }
+.memory-md__p { margin: 0.35rem 0; }
+.memory-md__code { background: var(--border); border-radius: 4px; padding: 0.75rem; font-family: var(--font-mono, monospace); font-size: 0.8rem; overflow-x: auto; margin: 0.5rem 0; }
+.memory-md code { background: var(--border); border-radius: 3px; padding: 0.1rem 0.3rem; font-family: var(--font-mono, monospace); font-size: 0.85em; }
