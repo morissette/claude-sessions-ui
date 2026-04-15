@@ -167,36 +167,13 @@ describe('SessionCard', () => {
     expect(screen.getByText('⚡ /compact')).toBeInTheDocument()
   })
 
-  it('shows export button', () => {
+  it('does not show export button (export moved to detail overlay)', () => {
     render(<SessionCard session={baseSession} ollama={ollamaOff} />)
-    expect(screen.getByText('Export as skill')).toBeInTheDocument()
+    expect(screen.queryByText('Export as skill')).not.toBeInTheDocument()
   })
 
-  it('shows export scope select', () => {
+  it('does not show export scope select (export moved to detail overlay)', () => {
     render(<SessionCard session={baseSession} ollama={ollamaOff} />)
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
-  })
-
-  it('shows skill name on successful export', async () => {
-    vi.stubGlobal('fetch', () =>
-      Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ skill_name: 'fix-auth-bug', skill_path: '/tmp/fix-auth-bug.md', scope: 'global', ollama_used: false }),
-      })
-    )
-    const user = userEvent.setup()
-    render(<SessionCard session={baseSession} ollama={ollamaOff} />)
-    await user.click(screen.getByText('Export as skill'))
-    await waitFor(() => expect(screen.getByText('✓ /fix-auth-bug')).toBeInTheDocument())
-    vi.restoreAllMocks()
-  })
-
-  it('shows retry on export error', async () => {
-    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, text: () => Promise.resolve('error') }))
-    const user = userEvent.setup()
-    render(<SessionCard session={baseSession} ollama={ollamaOff} />)
-    await user.click(screen.getByText('Export as skill'))
-    await waitFor(() => expect(screen.getByText('Retry export')).toBeInTheDocument())
-    vi.restoreAllMocks()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 })
