@@ -914,3 +914,11 @@ class TestValidateMemoryPath:
         with pytest.raises(HTTPException) as exc_info:
             backend.validate_memory_path("random_dir/file.txt")
         assert exc_info.value.status_code == 403
+
+    def test_traversal_within_claude_dir(self):
+        """'memory/../claude-sessions-ui.db' has parts[0]=='memory' but resolves outside
+        the memory/ subtree — must be rejected even though it stays inside ~/.claude."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("memory/../claude-sessions-ui.db")
+        assert exc_info.value.status_code == 403

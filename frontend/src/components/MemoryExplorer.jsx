@@ -1,14 +1,26 @@
 import { useState, useEffect } from 'react'
 import './MemoryExplorer.css'
 
-// Simple Markdown renderer — handles headings, bold, italic, code blocks, inline code
+// Escape HTML special characters so raw file content cannot inject markup.
+// Must be applied before any innerHTML substitution to prevent XSS.
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+// Simple Markdown renderer — handles headings, bold, italic, code blocks, inline code.
+// File content is HTML-escaped before any pattern substitution so that raw tags
+// from untrusted files can never execute in the browser (XSS prevention).
 function renderMarkdown(text) {
   const lines = text.split('\n')
   const elements = []
   let i = 0
   while (i < lines.length) {
     const line = lines[i]
-    // Code block
+    // Code block — content rendered as plain text via React children (no innerHTML)
     if (line.startsWith('```')) {
       const codeLines = []
       i++
@@ -23,8 +35,10 @@ function renderMarkdown(text) {
       const Tag = `h${Math.min(level + 2, 6)}`
       elements.push(<Tag key={i} className="memory-md__heading">{txt}</Tag>)
     } else {
-      // Inline formatting — bold, italic, inline code. NO links.
-      const inlined = line
+      // Escape raw HTML first, then apply only safe inline markdown patterns so
+      // that no HTML from the file content can ever reach dangerouslySetInnerHTML.
+      const escaped = escapeHtml(line)
+      const inlined = escaped
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
         .replace(/`(.*?)`/g, '<code>$1</code>')

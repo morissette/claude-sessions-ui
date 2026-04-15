@@ -1094,21 +1094,14 @@ def template_generate_skill(skill_data: dict) -> tuple[str, str]:
 
 
 def validate_memory_path(rel_path: str) -> Path:
-    """Resolve rel_path relative to CLAUDE_BASE_DIR. Raises HTTPException 403 if unsafe."""
+    """Resolve rel_path relative to CLAUDE_BASE_DIR. Raises HTTPException 403 if unsafe.
+
+    Security: rejects null bytes, paths outside CLAUDE_BASE_DIR, paths outside the
+    specific allowed subdirectory (prevents traversal like 'memory/../secrets.db'),
+    and paths whose root component is not in the allowlist.
+    """
     if "\x00" in rel_path:
         raise HTTPException(status_code=403, detail="Invalid path")
-
-    try:
-        resolved = (CLAUDE_BASE_DIR / rel_path).resolve()
-    except (OSError, ValueError) as exc:
-        raise HTTPException(status_code=403, detail="Invalid path") from exc
-
-    base_resolved = CLAUDE_BASE_DIR.resolve()
-    base_str = str(base_resolved)
-    resolved_str = str(resolved)
-
-    if resolved_str != base_str and not resolved_str.startswith(base_str + "/"):
-        raise HTTPException(status_code=403, detail="Path outside allowed directory")
 
     parts = Path(rel_path).parts
     if not parts:
@@ -1117,6 +1110,27 @@ def validate_memory_path(rel_path: str) -> Path:
     root = parts[0]
     if root not in MEMORY_ALLOWLIST and rel_path not in MEMORY_ALLOWLIST_FILES:
         raise HTTPException(status_code=403, detail="Directory not allowed")
+
+    try:
+        resolved = (CLAUDE_BASE_DIR / rel_path).resolve()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=403, detail="Invalid path") from exc
+
+    # For top-level allowlisted files (e.g. "settings.json"), verify they stay within
+    # CLAUDE_BASE_DIR.  For directory-rooted paths (e.g. "memory/…"), verify the
+    # resolved path stays strictly inside that specific subdirectory so that a path
+    # like "memory/../claude-sessions-ui.db" is rejected even though its parts[0] is
+    # "memory" and the resolved target would still be inside CLAUDE_BASE_DIR.
+    if rel_path in MEMORY_ALLOWLIST_FILES:
+        allowed_base = CLAUDE_BASE_DIR.resolve()
+    else:
+        allowed_base = (CLAUDE_BASE_DIR / root).resolve()
+
+    allowed_base_str = str(allowed_base)
+    resolved_str = str(resolved)
+
+    if resolved_str != allowed_base_str and not resolved_str.startswith(allowed_base_str + "/"):
+        raise HTTPException(status_code=403, detail="Path traversal detected")
 
     return resolved
 
@@ -1377,7 +1391,7 @@ async def get_memory_tree():
             pass
         return {"type": "dir", "name": directory.name, "path": rel_prefix, "children": children}
 
-    result = await asyncio.get_event_loop().run_in_executor(None, _build_tree)
+    result = await asyncio.get_running_loop().run_in_executor(None, _build_tree)
     return result
 
 
