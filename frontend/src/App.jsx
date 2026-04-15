@@ -24,6 +24,7 @@ export default function App() {
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
+  const intentionalCloseRef = useRef(false)
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -36,7 +37,13 @@ export default function App() {
     }
     ws.onclose = () => {
       setConnected(false)
-      reconnectRef.current = setTimeout(connect, 3000) // eslint-disable-line react-hooks/immutability
+      // Only schedule a reconnect for unexpected disconnects, not intentional closes
+      // (e.g. timeRange change or unmount). Without this guard the old closure would
+      // reconnect with the previous timeRange and create a duplicate connection.
+      if (!intentionalCloseRef.current) {
+        reconnectRef.current = setTimeout(connect, 3000) // eslint-disable-line react-hooks/immutability
+      }
+      intentionalCloseRef.current = false
     }
     ws.onerror = () => ws.close()
     ws.onmessage = (e) => {
@@ -48,10 +55,12 @@ export default function App() {
   }, [timeRange])
 
   useEffect(() => {
+    intentionalCloseRef.current = true
     wsRef.current?.close()
     connect()
     return () => {
       clearTimeout(reconnectRef.current)
+      intentionalCloseRef.current = true
       wsRef.current?.close()
     }
   }, [connect])

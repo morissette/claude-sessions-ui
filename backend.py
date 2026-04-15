@@ -48,11 +48,13 @@ async def lifespan(_app: FastAPI):
     init_db()
     asyncio.create_task(_startup_backfill())
     yield
-    # Shutdown: close the SQLite connection to release file locks
+    # Shutdown: acquire the lock so we don't race with in-flight upsert threads,
+    # then close the connection to release file locks/descriptors.
     global _db_conn
-    if _db_conn is not None:
-        _db_conn.close()
-        _db_conn = None
+    with _db_lock:
+        if _db_conn is not None:
+            _db_conn.close()
+            _db_conn = None
 
 
 app = FastAPI(title="Claude Sessions UI", lifespan=lifespan)
@@ -170,6 +172,9 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active);
         CREATE INDEX IF NOT EXISTS idx_sessions_started_at  ON sessions(started_at);
     """)
+    # Migrate: add last_activity column if it doesn't exist (SQLite has no ADD COLUMN IF NOT EXISTS)
+    with contextlib.suppress(sqlite3.OperationalError):
+        _db_conn.execute("ALTER TABLE sessions ADD COLUMN last_activity TEXT")
     _db_conn.commit()
 
 
@@ -199,6 +204,7 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             s["stats"]["estimated_cost_usd"],
             s.get("compact_potential_usd", 0.0),
             now_iso,
+            s.get("last_activity"),
         )
         for s in sessions
     ]
@@ -209,8 +215,9 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
                 session_id, project_path, project_name, git_branch, title, model,
                 turns, subagent_count, subagents_json, started_at, last_active,
                 input_tokens, output_tokens, cache_create_tokens, cache_read_tokens,
-                total_tokens, estimated_cost_usd, compact_potential_usd, last_synced_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                total_tokens, estimated_cost_usd, compact_potential_usd, last_synced_at,
+                last_activity
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_id) DO UPDATE SET
                 project_path=excluded.project_path,
                 project_name=excluded.project_name,
@@ -228,7 +235,8 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
                 total_tokens=excluded.total_tokens,
                 estimated_cost_usd=excluded.estimated_cost_usd,
                 compact_potential_usd=excluded.compact_potential_usd,
-                last_synced_at=excluded.last_synced_at
+                last_synced_at=excluded.last_synced_at,
+                last_activity=excluded.last_activity
             """,
             rows,
         )
@@ -268,7 +276,7 @@ def get_sessions_from_db(hours: int) -> list[dict]:
             "subagents": json.loads(row["subagents_json"]),
             "started_at": row["started_at"],
             "last_active": row["last_active"],
-            "last_activity": None,
+            "last_activity": row.get("last_activity"),
             "stats": {
                 "input_tokens": row["input_tokens"],
                 "output_tokens": row["output_tokens"],
@@ -307,7 +315,7 @@ def get_all_sessions_unbounded() -> list[dict]:
 async def _startup_backfill() -> None:
     """Asynchronously backfill all historical JSONL sessions into SQLite."""
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         sessions = await loop.run_in_executor(None, get_all_sessions_unbounded)
         await loop.run_in_executor(None, upsert_sessions_to_db, sessions)
         logger.info("Startup backfill complete: %d sessions stored", len(sessions))
@@ -318,7 +326,7 @@ async def _startup_backfill() -> None:
 async def _upsert_in_background(sessions: list[dict]) -> None:
     """Run upsert_sessions_to_db in a thread pool, logging any error instead of dropping it."""
     try:
-        await asyncio.get_event_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
+        await asyncio.get_running_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
     except Exception:
         logger.exception("Background SQLite upsert failed")
 
@@ -863,7 +871,7 @@ async def summarize_session(session_id: str):
         return {"session_id": session_id, "summary": None, "cached": False}
 
     # Run Ollama in a thread so we don't block the event loop
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     summary = await loop.run_in_executor(None, ollama_summarize, raw_title)
 
     if summary:
