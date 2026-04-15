@@ -68,7 +68,7 @@ function TokenBar({ stats }) {
   )
 }
 
-export default function SessionCard({ session, ollama, onSelect }) {
+export default function SessionCard({ session, ollama, onSelect, selectMode, isSelected, batchStatus }) {
   const [summary, setSummary] = useState(session.ai_summary || null)
   const [summarizing, setSummarizing] = useState(false)
 
@@ -95,12 +95,31 @@ export default function SessionCard({ session, ollama, onSelect }) {
 
   return (
     <div
-      className={`session-card ${active ? 'card-active' : 'card-idle'}`}
+      className={`session-card ${active ? 'card-active' : 'card-idle'}${selectMode ? ' card-selectable' : ''}${isSelected ? ' card-selected' : ''}`}
       onClick={() => onSelect?.(session.session_id)}
       style={{ cursor: 'pointer' }}
     >
       {/* top accent bar */}
       <div className={`card-accent-bar ${active ? 'bar-active' : 'bar-idle'}`} />
+
+      {/* select mode checkbox */}
+      {selectMode && (
+        <div className="card-select-row">
+          <input
+            type="checkbox"
+            className="card-checkbox"
+            checked={!!isSelected}
+            onChange={() => onSelect?.(session.session_id)}
+            onClick={e => e.stopPropagation()}
+            aria-label="Select session"
+          />
+          {batchStatus && (
+            <span className={`card-batch-status card-batch-status--${batchStatus}`}>
+              {batchStatus}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* header row */}
       <div className="card-header">

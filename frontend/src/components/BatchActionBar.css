@@ -1,0 +1,50 @@
+.batch-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface);
+  border-top: 2px solid var(--accent);
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.1);
+}
+
+.batch-action-bar__count {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.batch-action-bar__ctrl {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.batch-action-bar__ctrl:hover { color: var(--text); border-color: var(--text-dim); }
+
+.batch-action-bar__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.batch-action-bar__btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.batch-action-bar__btn:hover { opacity: 0.85; }
+.batch-action-bar__btn:disabled { opacity: 0.4; cursor: not-allowed; }

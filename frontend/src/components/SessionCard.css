@@ -408,3 +408,52 @@
 .session-card:hover .card-open-hint {
   opacity: 1;
 }
+
+/* Select mode */
+.card-selectable {
+  border-style: dashed;
+}
+
+.card-selected {
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.card-select-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2px;
+}
+
+.card-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.card-batch-status {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.card-batch-status--pending {
+  background: var(--border);
+  color: var(--text-dim);
+}
+
+.card-batch-status--done {
+  background: #22c55e22;
+  color: #16a34a;
+}
+
+.card-batch-status--error {
+  background: #ef444422;
+  color: #dc2626;
+}

@@ -18,7 +18,7 @@ from pathlib import Path
 import psutil
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -1990,6 +1990,14 @@ def render_transcript(path: Path) -> str:
     return "\n".join(lines)
 
 
+def _get_transcript_text(session_id: str) -> str | None:
+    """Return rendered transcript text for a session ID, or None if not found."""
+    path = find_session_file(session_id)
+    if path is None:
+        return None
+    return render_transcript(path)
+
+
 @app.get("/api/sessions/{session_id}/transcript")
 async def session_transcript(session_id: str):
     path = find_session_file(session_id)
@@ -2045,6 +2053,153 @@ async def export_skill(session_id: str, scope: str = "global"):
         "scope": scope,
         "ollama_used": ollama_used,
     }
+
+
+async def trigger_summary(session_id: str, jsonl_path: Path) -> str | None:
+    """Generate and cache an Ollama summary for a session. Returns the summary text."""
+    cached = get_cached_summary(session_id)
+    if cached:
+        return cached
+    loop = asyncio.get_running_loop()
+    # Parse session to get title text
+    project_path = str(jsonl_path.parent)
+    session = await loop.run_in_executor(None, parse_session_file, jsonl_path, project_path)
+    if session is None:
+        return None
+    raw_title = session.get("title", "")
+    if not raw_title:
+        return None
+    summary = await loop.run_in_executor(None, ollama_summarize, raw_title)
+    if summary:
+        cache_summary(session_id, summary)
+    return summary
+
+
+# ─── Batch operations ────────────────────────────────────────────────────────
+
+
+@app.post("/api/batch/summarize")
+async def batch_summarize(body: dict):
+    import re as _re
+    session_ids: list[str] = body.get("session_ids", [])[:50]  # cap at 50
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="No session IDs provided")
+    for sid in session_ids:
+        if not _re.match(r'^[a-zA-Z0-9_-]+$', sid):
+            raise HTTPException(status_code=400, detail=f"Invalid session ID: {sid}")
+
+    async def generate():
+        for sid in session_ids:
+            yield f"data: {json.dumps({'id': sid, 'status': 'pending'})}\n\n"
+            try:
+                jf = find_session_file(sid)
+                if jf is None:
+                    yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': 'session not found'})}\n\n"
+                    continue
+                result = await trigger_summary(sid, jf)
+                if result:
+                    yield f"data: {json.dumps({'id': sid, 'status': 'done'})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': 'summary unavailable'})}\n\n"
+            except Exception:
+                logger.exception("Batch summarize failed for session %s", sid)
+                yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': 'summarization failed'})}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/batch/export")
+async def batch_export(body: dict):
+    import io
+    import re as _re
+    import zipfile
+    session_ids: list[str] = body.get("session_ids", [])[:100]
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="No session IDs provided")
+    for sid in session_ids:
+        if not _re.match(r'^[a-zA-Z0-9_-]+$', sid):
+            raise HTTPException(status_code=400, detail=f"Invalid session ID: {sid}")
+
+    def build_zip() -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sid in session_ids:
+                transcript = _get_transcript_text(sid)
+                if transcript:
+                    safe_name = _re.sub(r"[^a-zA-Z0-9_-]", "_", sid)
+                    zf.writestr(f"{safe_name}.md", transcript)
+        return buf.getvalue()
+
+    zip_bytes = await asyncio.get_running_loop().run_in_executor(None, build_zip)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=sessions-export.zip"},
+    )
+
+
+@app.post("/api/batch/cost-report")
+async def batch_cost_report(body: dict):
+    import csv
+    import io
+    import re as _re
+    session_ids: list[str] = body.get("session_ids", [])[:100]
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="No session IDs provided")
+    for sid in session_ids:
+        if not _re.match(r'^[a-zA-Z0-9_-]+$', sid):
+            raise HTTPException(status_code=400, detail=f"Invalid session ID: {sid}")
+
+    # Snapshot cache before entering thread pool to avoid concurrent modification
+    cache_snapshot = dict(_session_cache)
+
+    def build_csv() -> str:
+        sessions = []
+        for sid in session_ids:
+            for cache_entry in cache_snapshot.values():
+                s = cache_entry[1]  # (mtime, session_data)
+                if isinstance(s, dict) and s.get("session_id") == sid:
+                    sessions.append(s)
+                    break
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "session_id", "project_name", "title", "model",
+            "started_at", "last_active", "turns",
+            "input_tokens", "output_tokens", "cache_create_tokens", "cache_read_tokens",
+            "total_tokens", "estimated_cost_usd",
+        ])
+        for s in sessions:
+            stats = s.get("stats", {})
+            writer.writerow([
+                s["session_id"],
+                s.get("project_name", ""),
+                s.get("title", ""),
+                s.get("model", ""),
+                s.get("started_at", ""),
+                s.get("last_active", ""),
+                s.get("turns", 0),
+                stats.get("input_tokens", 0),
+                stats.get("output_tokens", 0),
+                stats.get("cache_create_tokens", 0),
+                stats.get("cache_read_tokens", 0),
+                stats.get("total_tokens", 0),
+                stats.get("estimated_cost_usd", 0.0),
+            ])
+        return buf.getvalue()
+
+    csv_str = await asyncio.get_running_loop().run_in_executor(None, build_csv)
+    return Response(
+        content=csv_str.encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=cost-report.csv"},
+    )
 
 
 @app.get("/api/memory")
