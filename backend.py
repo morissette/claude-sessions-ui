@@ -121,7 +121,10 @@ def _normalize_ts(ts: str) -> str:
         return ts
     try:
         normalized = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
-        return datetime.fromisoformat(normalized).isoformat()
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.isoformat()
     except (ValueError, AttributeError):
         return ts
 
@@ -194,7 +197,12 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
     with _db_lock:
         _db_conn.executemany(
             """
-            INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO sessions (
+                session_id, project_path, project_name, git_branch, title, model,
+                turns, subagent_count, subagents_json, started_at, last_active,
+                input_tokens, output_tokens, cache_create_tokens, cache_read_tokens,
+                total_tokens, estimated_cost_usd, compact_potential_usd, last_synced_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_id) DO UPDATE SET
                 project_path=excluded.project_path,
                 project_name=excluded.project_name,
@@ -609,7 +617,7 @@ def compute_global_stats(sessions: list[dict], time_range_hours: int = 24) -> di
         if not ts:
             return False
         try:
-            return datetime.fromisoformat(ts[:19]).replace(tzinfo=UTC) >= period_cutoff
+            return datetime.fromisoformat(_normalize_ts(ts)) >= period_cutoff
         except ValueError:
             return False
     cost_today_val = sum(

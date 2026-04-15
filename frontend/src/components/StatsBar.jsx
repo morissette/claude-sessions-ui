@@ -14,7 +14,7 @@ function fmtCost(n) {
 
 const RANGE_COST_LABELS = {
   '1h': 'last 1h',
-  '1d': 'today',
+  '1d': 'last 24h',
   '3d': 'last 3d',
   '1w': 'last 1w',
   '2w': 'last 2w',

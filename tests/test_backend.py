@@ -452,7 +452,7 @@ def _make_session(session_id="abc", turns=3, cost=1.5, last_active=None):
 
 
 class TestUpsertSessions:
-    def setup_method(self, tmp_path_factory):
+    def setup_method(self):
         backend._db_conn = None
 
     def teardown_method(self):
@@ -503,6 +503,7 @@ class TestGetSessionsFromDb:
 
     def _init_with_sessions(self, tmp_path, monkeypatch, sessions):
         monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+        monkeypatch.setattr(backend, "get_cached_summary", lambda session_id: None)
         backend.init_db()
         backend.upsert_sessions_to_db(sessions)
 
@@ -630,16 +631,17 @@ class TestComputeGlobalStatsWithRange:
 
 from fastapi.testclient import TestClient
 
-client = TestClient(backend.app)
-
 
 class TestApiEndpoints:
-    @pytest.fixture(autouse=True)
-    def _isolate_db(self, tmp_path, monkeypatch):
-        """Patch DB_PATH to a temp file so tests never touch ~/.claude/."""
+    @pytest.fixture
+    def client(self, tmp_path, monkeypatch):
+        """Create TestClient after patching DB_PATH so lifespan init_db() uses a temp file."""
         monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+        monkeypatch.setattr(backend, "_db_conn", None)
+        with TestClient(backend.app) as c:
+            yield c
 
-    def test_sessions_endpoint_returns_200(self, tmp_path, monkeypatch):
+    def test_sessions_endpoint_returns_200(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
         monkeypatch.setattr(backend, "SUMMARIES_DIR", tmp_path / "summaries")
         monkeypatch.setattr(backend, "SAVINGS_FILE", tmp_path / "savings.jsonl")
@@ -654,7 +656,7 @@ class TestApiEndpoints:
         assert "truncation" in data
         assert "time_range" in data
 
-    def test_sessions_endpoint_accepts_time_range_param(self, tmp_path, monkeypatch):
+    def test_sessions_endpoint_accepts_time_range_param(self, client, tmp_path, monkeypatch):
         projects = tmp_path / "projects"
         projects.mkdir()
         monkeypatch.setattr(backend, "CLAUDE_DIR", projects)
@@ -666,7 +668,7 @@ class TestApiEndpoints:
         assert response.status_code == 200
         assert response.json()["time_range"] == "1w"
 
-    def test_sessions_endpoint_invalid_range_defaults_to_1d(self, tmp_path, monkeypatch):
+    def test_sessions_endpoint_invalid_range_defaults_to_1d(self, client, tmp_path, monkeypatch):
         projects = tmp_path / "projects"
         projects.mkdir()
         monkeypatch.setattr(backend, "CLAUDE_DIR", projects)
@@ -678,7 +680,7 @@ class TestApiEndpoints:
         assert response.status_code == 200
         assert response.json()["time_range"] == "1d"
 
-    def test_sessions_endpoint_empty_dir(self, tmp_path, monkeypatch):
+    def test_sessions_endpoint_empty_dir(self, client, tmp_path, monkeypatch):
         projects = tmp_path / "projects"
         projects.mkdir()
         monkeypatch.setattr(backend, "CLAUDE_DIR", projects)
@@ -690,14 +692,14 @@ class TestApiEndpoints:
         assert response.status_code == 200
         assert response.json()["sessions"] == []
 
-    def test_db_status_endpoint_returns_200(self):
+    def test_db_status_endpoint_returns_200(self, client):
         response = client.get("/api/db/status")
         assert response.status_code == 200
         data = response.json()
         assert "total_stored" in data
         assert "db_path" in data
 
-    def test_summarize_returns_404_for_unknown_session(self, tmp_path, monkeypatch):
+    def test_summarize_returns_404_for_unknown_session(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
         monkeypatch.setattr(backend, "SUMMARIES_DIR", tmp_path / "summaries")
         monkeypatch.setattr(backend, "SAVINGS_FILE", tmp_path / "savings.jsonl")
@@ -706,7 +708,7 @@ class TestApiEndpoints:
         response = client.post("/api/sessions/doesnotexist/summarize")
         assert response.status_code == 404
 
-    def test_metrics_endpoint_returns_prometheus_text(self):
+    def test_metrics_endpoint_returns_prometheus_text(self, client):
         response = client.get("/metrics")
         assert response.status_code == 200
         assert "claude_sessions_total" in response.text

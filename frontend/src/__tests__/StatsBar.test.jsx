@@ -20,7 +20,7 @@ describe('StatsBar', () => {
   it('renders all six stat tiles', () => {
     render(<StatsBar stats={baseStats} timeRange="1d" />)
     expect(screen.getByText('Sessions')).toBeInTheDocument()
-    expect(screen.getByText('Cost (today)')).toBeInTheDocument()
+    expect(screen.getByText('Cost (last 24h)')).toBeInTheDocument()
     expect(screen.getByText('Output tokens')).toBeInTheDocument()
     expect(screen.getByText('Cache reads')).toBeInTheDocument()
     expect(screen.getByText('Turns')).toBeInTheDocument()
