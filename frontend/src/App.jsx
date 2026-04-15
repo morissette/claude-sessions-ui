@@ -4,12 +4,21 @@ import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import './App.css'
 
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
+const TIME_RANGES = [
+  { id: '1h', label: '1h' },
+  { id: '1d', label: '1d' },
+  { id: '3d', label: '3d' },
+  { id: '1w', label: '1w' },
+  { id: '2w', label: '2w' },
+  { id: '1m', label: '1m' },
+  { id: '6m', label: '6m' },
+]
 
 export default function App() {
   const [data, setData] = useState({ sessions: [], stats: {}, savings: {}, truncation: {} })
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState('activity') // activity | cost | turns
+  const [timeRange, setTimeRange] = useState('1d')
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
@@ -18,7 +27,8 @@ export default function App() {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
-    const ws = new WebSocket(WS_URL)
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws?time_range=${timeRange}`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onopen = () => {
       setConnected(true)
@@ -35,9 +45,10 @@ export default function App() {
         setLastUpdate(new Date())
       } catch {}
     }
-  }, [])
+  }, [timeRange])
 
   useEffect(() => {
+    wsRef.current?.close()
     connect()
     return () => {
       clearTimeout(reconnectRef.current)
@@ -102,7 +113,7 @@ export default function App() {
         </div>
       </header>
 
-      <StatsBar stats={stats} />
+      <StatsBar stats={stats} timeRange={timeRange} />
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">
@@ -131,6 +142,19 @@ export default function App() {
               {sessions.filter(s => s.last_active && new Date(s.last_active) >= midnight).length}
             </span>
           </button>
+        </div>
+
+        <div className="time-range-tabs">
+          <span className="sort-label">Range</span>
+          {TIME_RANGES.map(r => (
+            <button
+              key={r.id}
+              className={`sort-btn ${timeRange === r.id ? 'sort-active' : ''}`}
+              onClick={() => setTimeRange(r.id)}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
 
         <div className="sort-controls">

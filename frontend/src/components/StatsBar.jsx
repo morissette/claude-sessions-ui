@@ -12,8 +12,19 @@ function fmtCost(n) {
   return `$${n.toFixed(2)}`
 }
 
-export default function StatsBar({ stats }) {
+const RANGE_COST_LABELS = {
+  '1h': 'last 1h',
+  '1d': 'today',
+  '3d': 'last 3d',
+  '1w': 'last 1w',
+  '2w': 'last 2w',
+  '1m': 'last 1m',
+  '6m': 'last 6m',
+}
+
+export default function StatsBar({ stats, timeRange }) {
   const s = stats || {}
+  const costLabel = `Cost (${RANGE_COST_LABELS[timeRange] ?? 'period'})`
 
   const tiles = [
     {
@@ -23,7 +34,7 @@ export default function StatsBar({ stats }) {
       accent: 'accent',
     },
     {
-      label: 'Cost today',
+      label: costLabel,
       value: fmtCost(s.cost_today_usd ?? 0),
       sub: `${fmtCost(s.total_cost_usd ?? 0)} total`,
       accent: 'cost',

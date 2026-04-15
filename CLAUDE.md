@@ -6,15 +6,20 @@ Claude Sessions UI is a real-time monitoring dashboard for Claude CLI sessions. 
 
 ## Architecture
 
-Single-file Python backend (`backend.py`) + React/Vite frontend (`frontend/src`). No database — state is derived by parsing JSONL files on each request, with mtime-based caching. All configuration is hardcoded constants at the top of `backend.py` (no `.env` file).
+Single-file Python backend (`backend.py`) + React/Vite frontend (`frontend/src`). State is derived by parsing JSONL files on each request (mtime-based caching) for short time ranges (≤24h), and from a SQLite DB for historical ranges (3d–6m). All configuration is hardcoded constants at the top of `backend.py` (no `.env` file), except `OLLAMA_URL` which can be overridden via environment variable.
 
 ```
 ~/.claude/projects/{project}/{session_id}.jsonl  → parsed by backend.py
+~/.claude/claude-sessions-ui.db                  → SQLite historical store
 ~/.claude/session_summaries/                     → Ollama summary cache
 ~/.claude/claude-sessions-ui.log                 → runtime logs
 ```
 
-**Data flow:** Browser WebSocket → FastAPI `/ws` → JSONL parsing → token/cost calculation → Prometheus metrics update → JSON response.
+**Data flow:** Browser WebSocket (`?time_range=1d`) → FastAPI `/ws` → JSONL parsing (short ranges) or SQLite query (long ranges) → token/cost calculation → Prometheus metrics update → JSON response.
+
+**Time range routing:**
+- `1h`, `1d` → JSONL parsing (live, fast path)
+- `3d`, `1w`, `2w`, `1m`, `6m` → SQLite query (historical, pre-indexed)
 
 ## Commands
 
@@ -26,6 +31,14 @@ Single-file Python backend (`backend.py`) + React/Vite frontend (`frontend/src`)
 ### Production
 ```bash
 ./start.sh        # Build frontend, serve everything from FastAPI on :8765
+```
+
+### Docker
+```bash
+./docker.sh build   # Build the Docker image
+./docker.sh up      # Start container at http://localhost:8765
+./docker.sh down    # Stop container
+./docker.sh logs    # Tail container logs
 ```
 
 ### Testing
@@ -51,19 +64,25 @@ cd frontend && npm install                # Node
 
 | File | Purpose |
 |------|---------|
-| `backend.py` | All Python logic: FastAPI app, JSONL parsing, cost calc, WebSocket, Ollama, Prometheus |
-| `frontend/src/App.jsx` | Root component, WebSocket client, filter/sort state |
+| `backend.py` | All Python logic: FastAPI app, JSONL parsing, cost calc, SQLite, WebSocket, Ollama, Prometheus |
+| `frontend/src/App.jsx` | Root component, WebSocket client, filter/sort/time-range state |
 | `frontend/src/components/SessionCard.jsx` | Per-session display, summary trigger |
 | `frontend/src/components/StatsBar.jsx` | Aggregate stats across all sessions |
 | `frontend/src/components/SavingsBanner.jsx` | Ollama savings display |
 | `tests/test_backend.py` | pytest unit tests for backend functions |
+| `Dockerfile` | Multi-stage build (Node → Python) |
+| `docker-compose.yml` | Single service; mounts `~/.claude/` as volume |
+| `docker.sh` | Convenience wrapper: `build`, `up`, `down`, `logs` |
 
 ## Backend Architecture Notes
 
 - **`MODEL_PRICING`** dict at top of `backend.py` — rates per million tokens. Update here when new models launch.
-- **Caching**: `_session_cache` and `_cwd_cache` are module-level dicts keyed by file path + mtime. Don't add database-style persistence.
-- **Process discovery**: Uses `psutil` to match active Claude processes. Checks `--resume` flag first, falls back to CWD matching.
-- **Ollama**: All calls are wrapped in try/except — the app degrades gracefully if Ollama is unavailable. Never make Ollama required.
+- **`DB_PATH`**: `~/.claude/claude-sessions-ui.db` — SQLite historical store. The DB is a cache; delete and restart to rebuild from JSONL.
+- **`LIVE_HOURS = 24`**: time ranges ≤ this use JSONL; longer ranges use SQLite. Startup backfill populates SQLite from all JSONL history asynchronously.
+- **`TIME_RANGE_HOURS`**: dict mapping `"1h"/"1d"/"3d"/"1w"/"2w"/"1m"/"6m"` → hours. Add new ranges here + in the frontend `TIME_RANGES` array.
+- **Caching**: `_session_cache` and `_cwd_cache` are module-level dicts keyed by file path + mtime. SQLite upserts happen in a thread pool (fire-and-forget in the WS loop).
+- **Process discovery**: Uses `psutil` to match active Claude processes. Checks `--resume` flag first, falls back to CWD matching (JSONL path only; SQLite path uses `--resume` match only).
+- **Ollama**: All calls are wrapped in try/except — the app degrades gracefully if Ollama is unavailable. Never make Ollama required. `OLLAMA_URL` reads from `os.environ` (default `http://localhost:11434`) so Docker can point it at the host.
 - **Sections in backend.py** are delimited by comment dividers (`# ─── Section ───`). Keep this convention.
 
 ## Frontend Architecture Notes
@@ -85,7 +104,8 @@ Both must pass before merge. Ruff is strict (rules: E, W, F, I, UP, B, C4, SIM),
 
 - Keep `backend.py` as a single file. Don't split into modules unless it grows beyond ~1000 lines.
 - No TypeScript — plain JavaScript throughout.
-- No ORM, no database. File-based state only.
+- No ORM. SQLite is the only persistence layer and is a derived cache — never the source of truth.
 - Ollama features must always degrade gracefully.
 - When adding new Claude models, add them to `MODEL_PRICING` in `backend.py` and add a test in `tests/test_backend.py`.
+- When adding new time ranges, update `TIME_RANGE_HOURS` in `backend.py` AND `TIME_RANGES` in `frontend/src/App.jsx`.
 - Run `ruff check` and `pytest` locally before pushing — CI will reject failures.
