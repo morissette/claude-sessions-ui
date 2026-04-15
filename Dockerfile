@@ -16,7 +16,7 @@ RUN pip install pipenv --no-cache-dir && \
     pipenv install --system --deploy
 
 # Copy backend
-COPY backend.py ./
+COPY backend/ ./backend/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
@@ -26,4 +26,4 @@ VOLUME ["/root/.claude"]
 
 EXPOSE 8765
 
-CMD ["python3", "backend.py"]
+CMD ["python3", "-m", "backend.main"]
