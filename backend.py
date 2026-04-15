@@ -48,6 +48,7 @@ subagents_total = Gauge("claude_subagents_total", "Total subagents spawned acros
 async def lifespan(_app: FastAPI):
     init_db()
     asyncio.create_task(_startup_backfill())
+    asyncio.create_task(backfill_daily_costs())
     yield
     # Shutdown: acquire the lock so we don't race with in-flight upsert threads,
     # then close the connection to release file locks/descriptors.
@@ -92,6 +93,54 @@ TRUNCATION_SAVINGS_FILE = Path.home() / ".claude" / "truncation_savings.jsonl"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 SUMMARY_MODEL = "llama3.2:3b"
 
+CONFIG_PATH = Path.home() / ".claude" / "claude-sessions-ui-config.json"
+_config_cache: tuple[float, dict] | None = None
+
+
+def _read_config_from_disk() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"daily_budget_usd": None, "weekly_budget_usd": None}
+
+
+def read_config() -> dict:
+    global _config_cache
+    now = time.monotonic()
+    if _config_cache and now - _config_cache[0] < 5:
+        return _config_cache[1]
+    data = _read_config_from_disk()
+    _config_cache = (now, data)
+    return data
+
+
+def write_config(data: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(data, indent=2))
+    global _config_cache
+    _config_cache = None  # invalidate cache
+
+
+CLAUDE_BASE_DIR = Path.home() / ".claude"
+
+MEMORY_ALLOWLIST = [
+    "memory",
+    "projects",
+    "commands",
+    "agents",
+    "skills",
+    "hooks",
+    "todos",
+]
+MEMORY_ALLOWLIST_FILES = [
+    "settings.json",
+    "settings.local.json",
+    "CLAUDE.md",
+]
+
 # Cost we'd pay for one summary via Claude Haiku (~500 input + ~15 output tokens)
 SUMMARY_COST_ESTIMATE_USD = round(500 * 0.8 / 1_000_000 + 15 * 4.0 / 1_000_000, 6)  # ~$0.00046
 
@@ -116,12 +165,25 @@ _session_cache: dict[str, tuple[float, dict]] = {}
 # file path → (mtime, cwd string)  — quick first-pass scan
 _cwd_cache: dict[str, tuple[float, str]] = {}
 
+# file path → (mtime, analytics dict)
+_analytics_cache: dict[str, tuple[float, dict]] = {}
+
 # SQLite connection and lock
 _db_conn: sqlite3.Connection | None = None
 _db_lock = threading.Lock()
 
+# FTS backfill state
+_fts_backfill_running: bool = False
+
 
 # ─── SQLite storage ──────────────────────────────────────────────────────────
+
+
+@contextlib.contextmanager
+def get_db():
+    """Yield the shared SQLite connection under the write lock."""
+    with _db_lock:
+        yield _db_conn
 
 
 def _normalize_ts(ts: str) -> str:
@@ -176,9 +238,28 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active);
         CREATE INDEX IF NOT EXISTS idx_sessions_started_at  ON sessions(started_at);
     """)
+    _db_conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_costs (
+            date            TEXT PRIMARY KEY,
+            total_cost_usd  REAL NOT NULL DEFAULT 0.0,
+            model_breakdown TEXT NOT NULL DEFAULT '{}',
+            session_count   INT  NOT NULL DEFAULT 0,
+            last_synced_at  TEXT
+        )
+    """)
     # Migrate: add last_activity column if it doesn't exist (SQLite has no ADD COLUMN IF NOT EXISTS)
     with contextlib.suppress(sqlite3.OperationalError):
         _db_conn.execute("ALTER TABLE sessions ADD COLUMN last_activity TEXT")
+    # FTS5 virtual table for full-text search across session messages
+    _db_conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS session_messages USING fts5(
+            session_id UNINDEXED,
+            role,
+            content,
+            ts UNINDEXED,
+            tokenize = 'porter ascii'
+        )
+    """)
     _db_conn.commit()
 
 
@@ -244,6 +325,46 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             """,
             rows,
         )
+        # Recompute daily_costs for each affected date from the sessions table.
+        # Using INSERT OR REPLACE with aggregated totals ensures idempotency —
+        # repeated upserts of the same sessions never inflate the daily totals.
+        affected_dates: set[str] = set()
+        for s in sessions:
+            started_at = s.get("started_at")
+            if started_at:
+                with contextlib.suppress(Exception):
+                    affected_dates.add(_normalize_ts(started_at)[:10])  # "YYYY-MM-DD"
+        now_iso = datetime.now(UTC).isoformat()
+        for date_str in affected_dates:
+            try:
+                model_rows = _db_conn.execute(
+                    "SELECT model, SUM(estimated_cost_usd), COUNT(*) "
+                    "FROM sessions WHERE DATE(started_at) = ? GROUP BY model",
+                    (date_str,),
+                ).fetchall()
+                if not model_rows:
+                    continue
+                breakdown: dict[str, float] = {}
+                total_cost = 0.0
+                total_count = 0
+                for model_name, cost_sum, count in model_rows:
+                    key = model_name or "unknown"
+                    breakdown[key] = round(cost_sum or 0.0, 6)
+                    total_cost += cost_sum or 0.0
+                    total_count += count or 0
+                _db_conn.execute(
+                    "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
+                    (date_str, total_cost, json.dumps(breakdown), total_count, now_iso),
+                )
+            except Exception:
+                pass
+        _db_conn.commit()
+        # Keep the FTS index in sync so new/updated sessions are searchable
+        # immediately without waiting for the next full backfill.
+        for s in sessions:
+            jsonl_path = find_session_file(s["session_id"])
+            if jsonl_path is not None:
+                _sync_fts(_db_conn, s["session_id"], jsonl_path)
         _db_conn.commit()
 
 
@@ -374,6 +495,7 @@ async def _startup_backfill() -> None:
         logger.info("Startup backfill complete: %d sessions stored", len(sessions))
     except Exception:
         logger.exception("Startup backfill failed")
+    asyncio.create_task(backfill_fts())
 
 
 async def _upsert_in_background(sessions: list[dict]) -> None:
@@ -382,6 +504,219 @@ async def _upsert_in_background(sessions: list[dict]) -> None:
         await asyncio.get_running_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
     except Exception:
         logger.exception("Background SQLite upsert failed")
+
+
+async def backfill_daily_costs() -> None:
+    def _run():
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT DATE(started_at) AS date, model, SUM(estimated_cost_usd), COUNT(*) "
+                "FROM sessions WHERE started_at IS NOT NULL GROUP BY DATE(started_at), model"
+            ).fetchall()
+            by_date: dict[str, dict] = {}
+            for date_str, model, cost, count in rows:
+                if not date_str:
+                    continue
+                if date_str not in by_date:
+                    by_date[date_str] = {"total": 0.0, "models": {}, "count": 0}
+                by_date[date_str]["total"] += cost or 0.0
+                by_date[date_str]["models"][model or "unknown"] = (
+                    by_date[date_str]["models"].get(model or "unknown", 0.0) + (cost or 0.0)
+                )
+                by_date[date_str]["count"] += count or 0
+            for date_str, data in by_date.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
+                    (date_str, data["total"], json.dumps(data["models"]),
+                     data["count"], datetime.now(UTC).isoformat()),
+                )
+            conn.commit()
+
+    await asyncio.get_running_loop().run_in_executor(None, _run)
+
+
+# ─── Full-text search helpers ────────────────────────────────────────────────
+
+
+def _extract_messages_from_jsonl(jsonl_path: Path) -> list[tuple[str, str, str, str]]:
+    """Parse a JSONL file and return (session_id, role, content, ts) tuples for FTS indexing."""
+    sid = jsonl_path.stem
+    rows: list[tuple[str, str, str, str]] = []
+    try:
+        with open(jsonl_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                msg = entry.get("message", {})
+                role = msg.get("role") or entry.get("type", "")
+                if role not in ("user", "assistant"):
+                    continue
+                content = ""
+                raw_content = msg.get("content", "")
+                if isinstance(raw_content, str):
+                    content = raw_content
+                elif isinstance(raw_content, list):
+                    for block in raw_content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            content += block.get("text", "") + " "
+                if not content.strip():
+                    continue
+                rows.append((sid, role, content[:4000], entry.get("timestamp", "")))
+    except OSError:
+        pass
+    return rows
+
+
+def _sync_fts(conn: sqlite3.Connection, session_id: str, jsonl_path: Path) -> None:
+    """Re-index a single session's messages in the FTS5 table."""
+    conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
+    rows = _extract_messages_from_jsonl(jsonl_path)
+    if rows:
+        conn.executemany(
+            "INSERT INTO session_messages (session_id, role, content, ts) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+
+
+async def backfill_fts() -> None:
+    """Asynchronously populate session_messages FTS table from all JSONL files."""
+    global _fts_backfill_running
+    _fts_backfill_running = True
+    try:
+        def _run() -> None:
+            jsonl_files = list(CLAUDE_DIR.rglob("*.jsonl"))
+            rows_to_insert: list[tuple[str, str, str, str]] = []
+            with _db_lock:
+                if _db_conn is None:
+                    return
+                for jf in jsonl_files:
+                    sid = jf.stem
+                    existing = _db_conn.execute(
+                        "SELECT 1 FROM session_messages WHERE session_id = ? LIMIT 1", (sid,)
+                    ).fetchone()
+                    if existing:
+                        continue
+                    rows_to_insert.extend(_extract_messages_from_jsonl(jf))
+                if rows_to_insert:
+                    _db_conn.executemany(
+                        "INSERT INTO session_messages (session_id, role, content, ts)"
+                        " VALUES (?, ?, ?, ?)",
+                        rows_to_insert,
+                    )
+                    _db_conn.commit()
+
+        await asyncio.get_event_loop().run_in_executor(None, _run)
+        logger.info("FTS backfill complete")
+    except Exception:
+        logger.exception("FTS backfill failed")
+    finally:
+        _fts_backfill_running = False
+
+
+async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
+    """Search session_messages FTS5 table for messages matching query."""
+
+    def _query_db() -> list:
+        try:
+            with _db_lock:
+                if _db_conn is None:
+                    return []
+                # JOIN sessions to fetch project_name/title in the same query,
+                # avoiding an N+1 per-row lookup. bm25() is the correct FTS5
+                # ranking function; the bare `rank` column does not exist on
+                # FTS5 tables and raises OperationalError at runtime.
+                rows = _db_conn.execute(
+                    """
+                    SELECT sm.session_id, sm.role, sm.ts,
+                           snippet(session_messages, 2, '**', '**', '...', 16) AS snip,
+                           bm25(session_messages),
+                           s.project_name, s.title
+                    FROM session_messages sm
+                    JOIN sessions s ON sm.session_id = s.session_id
+                    WHERE session_messages MATCH ?
+                      AND s.last_active >= ?
+                    ORDER BY bm25(session_messages)
+                    LIMIT ?
+                    """,
+                    (query, cutoff.isoformat(), limit),
+                ).fetchall()
+            return list(rows)
+        except Exception:
+            return []
+
+    rows = await asyncio.get_event_loop().run_in_executor(None, _query_db)
+    results: list[dict] = []
+    for sid, role, ts, snip, score, project_name, session_title in rows:
+        results.append({
+            "session_id": sid,
+            "project_name": project_name or "",
+            "session_title": session_title or "",
+            "role": role,
+            "snippet": snip or "",
+            "ts": ts,
+            "score": score or 0.0,
+        })
+    return results
+
+
+async def search_jsonl_live(query: str, cutoff: datetime, limit: int) -> list[dict]:
+    """Scan live JSONL files for messages containing the query string."""
+
+    def _scan() -> list[dict]:
+        results: list[dict] = []
+        q_lower = query.lower()
+        cutoff_ts = cutoff.timestamp()
+        for jf in CLAUDE_DIR.rglob("*.jsonl"):
+            try:
+                if jf.stat().st_mtime < cutoff_ts:
+                    continue
+            except OSError:
+                continue
+            if len(results) >= limit:
+                break
+            sid = jf.stem
+            try:
+                with open(jf, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        msg = entry.get("message", {})
+                        role = msg.get("role") or entry.get("type", "")
+                        if role not in ("user", "assistant"):
+                            continue
+                        content = ""
+                        raw = msg.get("content", "")
+                        if isinstance(raw, str):
+                            content = raw
+                        elif isinstance(raw, list):
+                            for block in raw:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    content += block.get("text", "") + " "
+                        if q_lower in content.lower():
+                            idx = content.lower().find(q_lower)
+                            start = max(0, idx - 50)
+                            end = min(len(content), idx + len(query) + 50)
+                            snippet = content[start:end]
+                            results.append({
+                                "session_id": sid,
+                                "project_name": str(jf.parent.name),
+                                "session_title": sid[:20],
+                                "role": role,
+                                "snippet": f"...{snippet}...",
+                                "ts": entry.get("timestamp", ""),
+                                "score": 1.0,
+                            })
+                            if len(results) >= limit:
+                                break
+            except OSError:
+                continue
+        return results
+
+    return await asyncio.get_event_loop().run_in_executor(None, _scan)
 
 
 # ─── Process discovery ────────────────────────────────────────────────────────
@@ -601,6 +936,60 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
 
 
 # ─── Session aggregation ─────────────────────────────────────────────────────
+
+def _norm_ts(ts: str | None) -> str:
+    """Normalize ISO timestamp to +00:00 format for lexicographic comparison.
+
+    Handles the mix of Z-suffix and +00:00-suffix timestamps that appear in
+    JSONL session files, ensuring min/max comparisons work correctly.
+    """
+    if not ts:
+        return ""
+    return ts.replace("Z", "+00:00")
+
+
+def compute_project_stats(sessions: list[dict]) -> list[dict]:
+    # Key by project_path (falls back to project_name) so distinct projects
+    # that share a display name are not incorrectly merged.
+    projects: dict[str, dict] = {}
+    for s in sessions:
+        name = s.get("project_name") or "unknown"
+        path = s.get("project_path", "")
+        key = path or name
+        if key not in projects:
+            projects[key] = {
+                "project_name": name,
+                "project_path": path,
+                "session_count": 0,
+                "total_cost_usd": 0.0,
+                "total_tokens": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "models": set(),
+                "first_session": s.get("started_at"),
+                "last_session": s.get("last_active"),
+            }
+        p = projects[key]
+        p["session_count"] += 1
+        stats = s.get("stats", {})
+        p["total_cost_usd"] += stats.get("estimated_cost_usd", 0.0)
+        p["total_tokens"] += stats.get("total_tokens", 0)
+        p["total_input_tokens"] += stats.get("input_tokens", 0)
+        p["total_output_tokens"] += stats.get("output_tokens", 0)
+        p["models"].add(s.get("model", "unknown"))
+        started = s.get("started_at")
+        active = s.get("last_active")
+        # Normalize timestamps before comparing to handle Z vs +00:00 suffix mix
+        if started and p["first_session"] and _norm_ts(started) < _norm_ts(p["first_session"]):
+            p["first_session"] = started
+        if active and p["last_session"] and _norm_ts(active) > _norm_ts(p["last_session"]):
+            p["last_session"] = active
+
+    for p in projects.values():
+        p["models"] = sorted(p["models"])
+
+    return sorted(projects.values(), key=lambda p: p["total_cost_usd"], reverse=True)
+
 
 def get_all_sessions(hours: int | None = 24) -> list[dict]:
     if not CLAUDE_DIR.exists():
@@ -985,6 +1374,164 @@ def parse_session_detail(path: Path, offset: int = 0, limit: int = 200) -> dict:
     }
 
 
+async def parse_session_analytics(session_id: str) -> dict | None:
+    """Parse a JSONL session file into per-turn analytics with mtime-based caching."""
+    matches = list(CLAUDE_DIR.glob(f"*/{session_id}.jsonl"))
+    if not matches:
+        return None
+    jf = matches[0]
+
+    mtime = jf.stat().st_mtime
+    cache_key = str(jf)
+    if cache_key in _analytics_cache and _analytics_cache[cache_key][0] == mtime:
+        return _analytics_cache[cache_key][1]
+
+    def _parse():
+        from collections import Counter
+        from datetime import datetime as _dt
+
+        turns: list[dict] = []
+        tool_counts: Counter = Counter()
+        current_turn: dict = {}
+        turn_number = 0
+
+        def new_turn(ts: str) -> dict:
+            return {
+                "input": 0, "output": 0, "cache_create": 0, "cache_read": 0,
+                "thinking": 0, "cost": 0.0, "start_ts": ts, "end_ts": ts,
+                "tools": [],
+            }
+
+        def finalize_turn(t: dict, n: int, model: str) -> dict:
+            pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
+            cost = (
+                t["input"]          * pricing["input"]       / 1_000_000
+                + t["output"]       * pricing["output"]      / 1_000_000
+                + t["cache_create"] * pricing["cache_write"] / 1_000_000
+                + t["cache_read"]   * pricing["cache_read"]  / 1_000_000
+            )
+            dur = None
+            try:
+                if t["start_ts"] and t["end_ts"]:
+                    a = _dt.fromisoformat(t["start_ts"].replace("Z", "+00:00"))
+                    b = _dt.fromisoformat(t["end_ts"].replace("Z", "+00:00"))
+                    dur = (b - a).total_seconds()
+            except Exception:
+                pass
+            return {
+                "turn": n,
+                "input_tokens": t["input"],
+                "output_tokens": t["output"],
+                "cache_create_tokens": t["cache_create"],
+                "cache_read_tokens": t["cache_read"],
+                "thinking_words": t["thinking"],
+                "cost_usd": cost,
+                "duration_s": dur,
+                "ts": t["start_ts"],
+            }
+
+        model_used = "claude-sonnet-4-6"
+        try:
+            with open(jf, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    msg = entry.get("message", {}) or {}
+                    role = msg.get("role") or entry.get("type", "")
+                    ts = entry.get("timestamp", "")
+
+                    if role == "user":
+                        content = msg.get("content", "")
+                        has_text = (
+                            (isinstance(content, str) and content.strip()) or
+                            (isinstance(content, list) and any(
+                                isinstance(b, dict) and b.get("type") == "text" for b in content
+                            ))
+                        )
+                        if has_text:
+                            if current_turn and turn_number > 0:
+                                turns.append(finalize_turn(current_turn, turn_number, model_used))
+                            turn_number += 1
+                            current_turn = new_turn(ts)
+
+                    elif role == "assistant":
+                        if not current_turn:
+                            turn_number += 1
+                            current_turn = new_turn(ts)
+                        usage = msg.get("usage", {}) or {}
+                        current_turn["input"]        += usage.get("input_tokens", 0) or 0
+                        current_turn["output"]       += usage.get("output_tokens", 0) or 0
+                        current_turn["cache_create"] += usage.get("cache_creation_input_tokens", 0) or 0
+                        current_turn["cache_read"]   += usage.get("cache_read_input_tokens", 0) or 0
+                        current_turn["end_ts"] = ts
+                        m = msg.get("model", "")
+                        if m:
+                            model_used = m
+                        for block in (msg.get("content") or []):
+                            if isinstance(block, dict) and block.get("type") == "thinking":
+                                think_text = block.get("thinking", "")
+                                current_turn["thinking"] += len(think_text.split()) if think_text else 0
+
+                    elif entry.get("type") in ("tool", "tool_result") or role in ("tool",):
+                        tool_name = (
+                            entry.get("toolName") or entry.get("tool_name") or
+                            entry.get("name") or "Unknown"
+                        )
+                        tool_counts[tool_name] += 1
+                        if current_turn:
+                            current_turn["tools"].append(tool_name)
+
+        except OSError:
+            return None
+
+        if current_turn and turn_number > 0:
+            turns.append(finalize_turn(current_turn, turn_number, model_used))
+
+        if not turns:
+            return None
+
+        # Cumulative cost
+        cumulative = []
+        running = 0.0
+        for t in turns:
+            running += t["cost_usd"]
+            cumulative.append({"turn": t["turn"], "cost_usd": running})
+
+        # Tool usage top 10
+        tool_usage = [{"tool": t, "count": c} for t, c in tool_counts.most_common(10)]
+
+        # Summary stats
+        durations = [t["duration_s"] for t in turns if t["duration_s"] is not None]
+        avg_dur = sum(durations) / len(durations) if durations else None
+        total_output = sum(t["output_tokens"] for t in turns)
+        # thinking_words is a word count (len(text.split()), not an API token count)
+        total_thinking_words = sum(t["thinking_words"] for t in turns)
+        thinking_word_ratio = total_thinking_words / total_output if total_output > 0 else 0.0
+        peak = max(turns, key=lambda t: t["cost_usd"])
+
+        return {
+            "session_id": session_id,
+            "turns": turns[:200],
+            "truncated": len(turns) > 200,
+            "cumulative_cost": cumulative[:200],
+            "tool_usage": tool_usage,
+            "summary": {
+                "total_turns": len(turns),
+                "avg_turn_duration_s": avg_dur,
+                "thinking_word_ratio": thinking_word_ratio,
+                "peak_turn": peak["turn"],
+                "peak_turn_cost_usd": peak["cost_usd"],
+            },
+        }
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _parse)
+    if result:
+        _analytics_cache[cache_key] = (mtime, result)
+    return result
+
+
 # ─── Skill export helpers ─────────────────────────────────────────────────────
 
 SKILL_PROMPT_TEMPLATE = """
@@ -1107,6 +1654,51 @@ def template_generate_skill(skill_data: dict) -> tuple[str, str]:
     return name, body
 
 
+# ─── Memory Explorer helpers ─────────────────────────────────────────────────
+
+
+def validate_memory_path(rel_path: str) -> Path:
+    """Resolve rel_path relative to CLAUDE_BASE_DIR. Raises HTTPException 403 if unsafe.
+
+    Security: rejects null bytes, paths outside CLAUDE_BASE_DIR, paths outside the
+    specific allowed subdirectory (prevents traversal like 'memory/../secrets.db'),
+    and paths whose root component is not in the allowlist.
+    """
+    if "\x00" in rel_path:
+        raise HTTPException(status_code=403, detail="Invalid path")
+
+    parts = Path(rel_path).parts
+    if not parts:
+        raise HTTPException(status_code=403, detail="Empty path")
+
+    root = parts[0]
+    if root not in MEMORY_ALLOWLIST and rel_path not in MEMORY_ALLOWLIST_FILES:
+        raise HTTPException(status_code=403, detail="Directory not allowed")
+
+    try:
+        resolved = (CLAUDE_BASE_DIR / rel_path).resolve()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=403, detail="Invalid path") from exc
+
+    # For top-level allowlisted files (e.g. "settings.json"), verify they stay within
+    # CLAUDE_BASE_DIR.  For directory-rooted paths (e.g. "memory/…"), verify the
+    # resolved path stays strictly inside that specific subdirectory so that a path
+    # like "memory/../claude-sessions-ui.db" is rejected even though its parts[0] is
+    # "memory" and the resolved target would still be inside CLAUDE_BASE_DIR.
+    if rel_path in MEMORY_ALLOWLIST_FILES:
+        allowed_base = CLAUDE_BASE_DIR.resolve()
+    else:
+        allowed_base = (CLAUDE_BASE_DIR / root).resolve()
+
+    allowed_base_str = str(allowed_base)
+    resolved_str = str(resolved)
+
+    if resolved_str != allowed_base_str and not resolved_str.startswith(allowed_base_str + "/"):
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+
+    return resolved
+
+
 # ─── HTTP endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/api/sessions")
@@ -1130,6 +1722,94 @@ async def list_sessions(time_range: str = "1d"):
         "truncation": compute_truncation_savings(),
         "time_range": time_range,
     }
+
+
+@app.get("/api/search")
+async def search_sessions(q: str = "", time_range: str = "1d", limit: int = 20):
+    q = q.strip()[:200]
+    if not q:
+        return {"query": q, "results": [], "total": 0, "index_ready": not _fts_backfill_running}
+
+    limit = max(1, min(100, limit))
+    hours = TIME_RANGE_HOURS.get(time_range, 24)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    try:
+        if hours <= LIVE_HOURS:
+            results = await search_jsonl_live(q, cutoff, limit)
+        else:
+            results = await search_fts(q, cutoff, limit)
+    except Exception:
+        results = []
+
+    return {
+        "query": q,
+        "results": results[:limit],
+        "total": len(results),
+        "index_ready": not _fts_backfill_running,
+    }
+
+
+@app.get("/api/projects")
+async def get_projects(time_range: str = "1d"):
+    if time_range not in TIME_RANGE_HOURS:
+        time_range = "1d"
+    sessions = get_sessions_for_range(time_range)
+    return compute_project_stats(sessions)
+
+
+def parse_trend_range(r: str) -> int:
+    mapping = {"2w": 14, "4w": 28, "3m": 90}
+    return mapping.get(r, 28)
+
+
+@app.get("/api/trends")
+async def get_trends(range: str = "4w"):
+    days = parse_trend_range(range)
+    from datetime import date as date_type
+
+    cutoff = (date_type.today() - timedelta(days=days)).isoformat()
+
+    def _query():
+        with get_db() as conn:
+            return conn.execute(
+                "SELECT date, total_cost_usd, model_breakdown, session_count "
+                "FROM daily_costs WHERE date >= ? ORDER BY date",
+                (cutoff,),
+            ).fetchall()
+
+    rows = await asyncio.get_running_loop().run_in_executor(None, _query)
+    config = read_config()
+    days_data = [
+        {
+            "date": r[0],
+            "total_cost_usd": r[1],
+            "by_model": json.loads(r[2] or "{}"),
+            "session_count": r[3],
+        }
+        for r in rows
+    ]
+    return {
+        "days": days_data,
+        "daily_budget_usd": config.get("daily_budget_usd"),
+        "weekly_budget_usd": config.get("weekly_budget_usd"),
+    }
+
+
+@app.get("/api/config")
+async def get_config():
+    return read_config()
+
+
+@app.put("/api/config")
+async def put_config(body: dict):
+    allowed_keys = {"daily_budget_usd", "weekly_budget_usd"}
+    config = read_config()
+    for k, v in body.items():
+        if k in allowed_keys:
+            config[k] = float(v) if v is not None else None
+    write_config(config)
+    return config
 
 
 @app.get("/api/db/status")
@@ -1278,6 +1958,16 @@ async def session_transcript(session_id: str):
     )
 
 
+@app.get("/api/sessions/{session_id}/analytics")
+async def get_session_analytics(session_id: str):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    data = await parse_session_analytics(session_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return data
+
+
 @app.post("/api/sessions/{session_id}/export-skill")
 async def export_skill(session_id: str, scope: str = "global"):
     if scope not in ("global", "local"):
@@ -1310,6 +2000,102 @@ async def export_skill(session_id: str, scope: str = "global"):
     }
 
 
+@app.get("/api/memory")
+async def get_memory_tree():
+    def _build_tree() -> dict:
+        base = CLAUDE_BASE_DIR.resolve()
+        tree: dict = {"type": "dir", "name": ".claude", "children": []}
+
+        for fname in MEMORY_ALLOWLIST_FILES:
+            fp = base / fname
+            if fp.exists() and fp.is_file() and not fp.is_symlink():
+                try:
+                    stat = fp.stat()
+                    tree["children"].append({
+                        "type": "file",
+                        "name": fname,
+                        "path": fname,
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                    })
+                except OSError:
+                    pass
+
+        for dname in MEMORY_ALLOWLIST:
+            dp = base / dname
+            if dp.exists() and dp.is_dir() and not dp.is_symlink():
+                tree["children"].append(_build_dir(dp, dname))
+
+        return tree
+
+    def _build_dir(directory: Path, rel_prefix: str) -> dict:
+        children = []
+        try:
+            for entry in sorted(directory.iterdir(), key=lambda e: e.name):
+                if entry.is_symlink():
+                    continue
+                rel = f"{rel_prefix}/{entry.name}"
+                if entry.is_file():
+                    try:
+                        stat = entry.stat()
+                        children.append({
+                            "type": "file",
+                            "name": entry.name,
+                            "path": rel,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                        })
+                    except OSError:
+                        pass
+                elif entry.is_dir() and not entry.name.startswith("."):
+                    children.append(_build_dir(entry, rel))
+        except PermissionError:
+            pass
+        return {"type": "dir", "name": directory.name, "path": rel_prefix, "children": children}
+
+    result = await asyncio.get_running_loop().run_in_executor(None, _build_tree)
+    return result
+
+
+@app.get("/api/memory/file")
+async def get_memory_file(path: str):
+    resolved = validate_memory_path(path)
+
+    if not resolved.exists() or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    MAX_SIZE = 500 * 1024
+    try:
+        stat = resolved.stat()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    truncated = stat.st_size > MAX_SIZE
+
+    try:
+        content = resolved.read_bytes()[:MAX_SIZE].decode("utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Cannot read file") from exc
+
+    suffix = resolved.suffix.lower()
+    if suffix in (".md", ".markdown"):
+        mime = "text/markdown"
+    elif suffix == ".json":
+        mime = "application/json"
+    else:
+        mime = "text/plain"
+
+    return {
+        "path": path,
+        "name": resolved.name,
+        "content": content,
+        "mime": mime,
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+        "truncated": truncated,
+    }
+
+
 @app.get("/metrics", response_class=PlainTextResponse)
 async def prometheus_metrics():
     # Trigger a refresh so metrics are fresh
@@ -1333,6 +2119,7 @@ async def websocket_endpoint(
     time_range: str = "1d",
     start: str | None = None,
     end: str | None = None,
+    project: str | None = None,
 ):
     # Validate custom date params before accepting
     if start:
@@ -1356,6 +2143,8 @@ async def websocket_endpoint(
     try:
         while True:
             sess = get_sessions_for_range(time_range, start=start, end=end)
+            if project:
+                sess = [s for s in sess if s.get("project_name") == project]
             hours = TIME_RANGE_HOURS.get(time_range)
             stats = compute_global_stats(sess, hours if hours is not None else LIVE_HOURS)
             _update_prometheus(stats)

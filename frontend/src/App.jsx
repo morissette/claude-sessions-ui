@@ -3,7 +3,11 @@ import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
+import SearchResults from './components/SearchResults'
+import MemoryExplorer from './components/MemoryExplorer'
 import { usePersistedState } from './hooks/usePersistedState.js'
+import TrendsChart from './components/TrendsChart'
+import { ProjectList } from './components/ProjectCard'
 import './App.css'
 
 const PREFS_DEFAULTS = {
@@ -44,13 +48,21 @@ export default function App() {
   const setSort      = (v) => setPrefs(p => ({...p, sort:      v}))
   const setTimeRange = (v) => setPrefs(p => ({...p, timeRange: v}))
 
+
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd]     = useState('')
   const [customError, setCustomError] = useState('')
+  const [trendsExpanded, setTrendsExpanded] = useState(false)
+  const [viewMode, setViewMode] = useState('sessions')
+  const [selectedProject, setSelectedProject] = useState(null)
+  const [projectData, setProjectData] = useState([])
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const intentionalCloseRef = useRef(false)
@@ -74,7 +86,8 @@ export default function App() {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
-    const wsUrl = buildWsUrl(timeRange, customStart, customEnd)
+    let wsUrl = buildWsUrl(timeRange, customStart, customEnd)
+    if (selectedProject) wsUrl += `&project=${encodeURIComponent(selectedProject)}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onopen = () => {
@@ -98,7 +111,7 @@ export default function App() {
         setLastUpdate(new Date())
       } catch {}
     }
-  }, [timeRange, customStart, customEnd])
+  }, [timeRange, customStart, customEnd, selectedProject])
 
   useEffect(() => {
     intentionalCloseRef.current = true
@@ -118,6 +131,47 @@ export default function App() {
     const id = setInterval(checkOllama, 15000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults(null); return }
+    // AbortController lets us cancel the in-flight fetch when the query changes
+    // before the response arrives, so stale results never overwrite fresh ones.
+    const controller = new AbortController()
+    const t = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const res = await fetch(
+          `/api/search?q=${encodeURIComponent(searchQuery)}&time_range=${timeRange}`,
+          { signal: controller.signal },
+        )
+        const data = await res.json()
+        setSearchResults(data)
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setSearchResults({ query: searchQuery, results: [], total: 0, index_ready: true })
+        }
+      }
+      // Only clear the loading spinner for non-aborted requests; the replacement
+      // effect invocation will set it back to true immediately after aborting.
+      if (!controller.signal.aborted) {
+        setSearchLoading(false)
+      }
+    }, 300)
+    return () => { clearTimeout(t); controller.abort() }
+  }, [searchQuery, timeRange])
+
+  useEffect(() => {
+    if (viewMode !== 'projects') return
+    fetch(`/api/projects?time_range=${timeRange}`)
+      .then(r => r.json())
+      .then(setProjectData)
+      .catch(() => {})
+  }, [viewMode, timeRange])
+
+  function handleProjectSelect(project) {
+    setSelectedProject(project.project_name)
+    setViewMode('sessions')
+  }
 
   const sessions = data.sessions || []
   const stats = data.stats || {}
@@ -168,10 +222,40 @@ export default function App() {
         </div>
       </header>
 
-      <StatsBar stats={stats} timeRange={timeRange} />
+      <StatsBar stats={stats} timeRange={timeRange} sessions={sorted} />
+      <section className="trends">
+        <button className="trends__toggle" onClick={() => setTrendsExpanded(e => !e)}>
+          Cost Trends
+          <span className={`trends__chevron ${trendsExpanded ? 'open' : ''}`}>▾</span>
+        </button>
+        {trendsExpanded && <TrendsChart timeRange={timeRange} />}
+      </section>
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">
+        <div className="toolbar__view-toggle">
+          <button
+            className={`toolbar__view-btn ${viewMode === 'sessions' ? 'active' : ''}`}
+            onClick={() => setViewMode('sessions')}
+          >Sessions</button>
+          <button
+            className={`toolbar__view-btn ${viewMode === 'projects' ? 'active' : ''}`}
+            onClick={() => setViewMode('projects')}
+          >Projects</button>
+        </div>
+
+        {selectedProject && (
+          <span className="project-filter__tag">
+            {selectedProject}
+            <button
+              type="button"
+              className="project-filter__clear"
+              aria-label="Clear project filter"
+              onClick={() => setSelectedProject(null)}
+            >×</button>
+          </span>
+        )}
+
         <div className="filter-tabs">
           <button
             className={`ftab ${filter === 'all' ? 'ftab-active' : ''}`}
@@ -198,6 +282,14 @@ export default function App() {
             </span>
           </button>
         </div>
+
+        <input
+          className="toolbar__search"
+          type="search"
+          placeholder="Search sessions…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
 
         <div className="time-range-tabs">
           <span className="sort-label">Range</span>
@@ -240,31 +332,49 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        <div className="view-controls">
+          <button
+            className={`toolbar__view-btn ${viewMode === 'sessions' ? 'active' : ''}`}
+            onClick={() => setViewMode('sessions')}
+          >Sessions</button>
+          <button
+            className={`toolbar__view-btn ${viewMode === 'memory' ? 'active' : ''}`}
+            onClick={() => setViewMode('memory')}
+          >Memory</button>
+        </div>
       </div>
 
       <main className="sessions-container">
-        {sorted.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">◇</div>
-            <p className="empty-title">No sessions found</p>
-            <p className="empty-sub">
-              {filter !== 'all'
-                ? `No ${filter} sessions — try "All"`
-                : 'Start a Claude Code session to see it here'}
-            </p>
-          </div>
-        ) : (
-          <div className="sessions-grid">
-            {sorted.map(session => (
-              <SessionCard
-                key={session.session_id}
-                session={session}
-                ollama={ollama}
-                onSelect={setSelectedSessionId}
-              />
-            ))}
-          </div>
-        )}
+        {searchResults !== null
+          ? <SearchResults results={searchResults} loading={searchLoading} onSelect={setSelectedSessionId} />
+          : viewMode === 'memory'
+          ? <MemoryExplorer />
+          : viewMode === 'projects'
+          ? <ProjectList projects={projectData} onSelect={handleProjectSelect} />
+          : sorted.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">◇</div>
+              <p className="empty-title">No sessions found</p>
+              <p className="empty-sub">
+                {filter !== 'all'
+                  ? `No ${filter} sessions — try "All"`
+                  : 'Start a Claude Code session to see it here'}
+              </p>
+            </div>
+          ) : (
+            <div className="sessions-grid">
+              {sorted.map(session => (
+                <SessionCard
+                  key={session.session_id}
+                  session={session}
+                  ollama={ollama}
+                  onSelect={setSelectedSessionId}
+                />
+              ))}
+            </div>
+          )
+        }
       </main>
 
       {selectedSessionId && (

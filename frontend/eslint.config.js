@@ -27,6 +27,7 @@ export default [
         WebSocket: "readonly",
         fetch: "readonly",
         URL: "readonly",
+        AbortController: "readonly",
         localStorage: "readonly",
       },
     },

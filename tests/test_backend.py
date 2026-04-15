@@ -932,3 +932,189 @@ class TestExportSkill:
         with TestClient(backend.app) as client:
             response = client.post("/api/sessions/doesnotexist/export-skill")
         assert response.status_code == 404
+
+
+# ─── Analytics endpoint ───────────────────────────────────────────────────────
+
+
+def test_analytics_404():
+    from fastapi.testclient import TestClient
+    client = TestClient(backend.app)
+    resp = client.get("/api/sessions/nonexistent-session-id-xyz/analytics")
+    assert resp.status_code == 404
+
+
+def test_analytics_invalid_session_id():
+    from fastapi.testclient import TestClient
+    client = TestClient(backend.app)
+    resp = client.get("/api/sessions/../etc/passwd/analytics")
+    # Should be 400 or 404, not 500
+    assert resp.status_code in (400, 404, 422)
+
+
+# ─── Config API ───────────────────────────────────────────────────────────────
+
+
+def test_read_config_missing_file(tmp_path, monkeypatch):
+    import backend
+    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "nonexistent.json")
+    monkeypatch.setattr(backend, '_config_cache', None)
+    cfg = backend._read_config_from_disk()
+    assert cfg == {"daily_budget_usd": None, "weekly_budget_usd": None}
+
+
+def test_put_config_ignores_unknown_keys(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "config.json")
+    monkeypatch.setattr(backend, '_config_cache', None)
+    with TestClient(backend.app) as client:
+        resp = client.put("/api/config", json={"daily_budget_usd": 5.0, "unknown_key": "ignored"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["daily_budget_usd"] == 5.0
+        assert "unknown_key" not in data
+
+
+def test_get_trends_returns_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, 'DB_PATH', tmp_path / "test.db")
+    monkeypatch.setattr(backend, '_db_conn', None)
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/trends?range=4w")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "days" in body
+        assert isinstance(body["days"], list)
+
+
+# ─── Search endpoint ──────────────────────────────────────────────────────────
+
+
+def test_search_empty_query(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/search?q=&time_range=1d")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["results"] == []
+    assert data["total"] == 0
+
+
+# ─── Memory Explorer ─────────────────────────────────────────────────────────
+
+
+class TestValidateMemoryPath:
+    def test_valid_path(self):
+        import pathlib
+        # Should not raise
+        result = backend.validate_memory_path("memory/test.md")
+        assert isinstance(result, pathlib.Path)
+
+    def test_dotdot_traversal(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("memory/../../etc/passwd")
+        assert exc_info.value.status_code == 403
+
+    def test_null_byte_injection(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("memory/\x00evil")
+        assert exc_info.value.status_code == 403
+
+    def test_non_allowlisted_directory(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("random_dir/file.txt")
+        assert exc_info.value.status_code == 403
+
+    def test_traversal_within_claude_dir(self):
+        """'memory/../claude-sessions-ui.db' has parts[0]=='memory' but resolves outside
+        the memory/ subtree — must be rejected even though it stays inside ~/.claude."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            backend.validate_memory_path("memory/../claude-sessions-ui.db")
+        assert exc_info.value.status_code == 403
+
+
+# ─── compute_project_stats ────────────────────────────────────────────────────
+
+
+def test_compute_project_stats_groups_correctly():
+    sessions = [
+        {
+            "project_name": "proj-a",
+            "project_path": "/proj-a",
+            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100, "input_tokens": 60, "output_tokens": 40},
+            "model": "claude-sonnet-4-6",
+            "started_at": "2026-04-01T00:00:00",
+            "last_active": "2026-04-01T01:00:00",
+        },
+        {
+            "project_name": "proj-a",
+            "project_path": "/proj-a",
+            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200, "input_tokens": 120, "output_tokens": 80},
+            "model": "claude-opus-4-6",
+            "started_at": "2026-04-01T02:00:00",
+            "last_active": "2026-04-01T03:00:00",
+        },
+        {
+            "project_name": "proj-b",
+            "project_path": "/proj-b",
+            "stats": {"estimated_cost_usd": 0.5, "total_tokens": 50, "input_tokens": 30, "output_tokens": 20},
+            "model": "claude-haiku-4-5-20251001",
+            "started_at": "2026-04-01T00:00:00",
+            "last_active": "2026-04-01T00:30:00",
+        },
+    ]
+    result = backend.compute_project_stats(sessions)
+    assert len(result) == 2
+    proj_a = next(p for p in result if p["project_name"] == "proj-a")
+    assert proj_a["session_count"] == 2
+    assert abs(proj_a["total_cost_usd"] - 3.0) < 0.001
+    assert proj_a["first_session"] == "2026-04-01T00:00:00"
+    assert proj_a["last_session"] == "2026-04-01T03:00:00"
+
+
+def test_compute_project_stats_empty():
+    assert backend.compute_project_stats([]) == []
+
+
+def test_compute_project_stats_mixed_timestamps():
+    """Groups correctly when sessions mix Z and +00:00 timestamp suffixes."""
+    sessions = [
+        {
+            "project_path": "/proj-a",
+            "project_name": "proj-a",
+            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100},
+            "model": "claude-sonnet-4-6",
+            "started_at": "2026-04-01T00:00:00Z",
+            "last_active": "2026-04-01T01:00:00+00:00",
+        },
+        {
+            "project_path": "/proj-a",
+            "project_name": "proj-a",
+            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200},
+            "model": "claude-opus-4-6",
+            "started_at": "2026-04-01T02:00:00+00:00",
+            "last_active": "2026-04-01T03:00:00Z",
+        },
+    ]
+    result = backend.compute_project_stats(sessions)
+    assert len(result) == 1
+    p = result[0]
+    # first_session must be <= last_session after normalizing Z vs +00:00
+    assert p["first_session"].replace("Z", "+00:00") <= p["last_session"].replace("Z", "+00:00")
+
+
+def test_api_projects_returns_list(tmp_path, monkeypatch):
+    """GET /api/projects returns a JSON list."""
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+    (tmp_path / "projects").mkdir()
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/projects?time_range=1d")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)

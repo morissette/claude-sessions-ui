@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import SessionAnalytics from './SessionAnalytics'
 import './SessionDetail.css'
 
 function MessageThread({ messages }) {
@@ -94,6 +95,11 @@ export default function SessionDetail({ sessionId, onClose }) {
   const { loading, error, detail, offset } = fetchState
   const limit = 200
 
+  const [activeTab, setActiveTab] = useState('transcript')
+  const [analyticsData, setAnalyticsData] = useState(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [analyticsError, setAnalyticsError] = useState(null)
+
   const [exportScope, setExportScope] = useState('global')
   const [exportState, setExportState] = useState('idle')
   const [exportedName, setExportedName] = useState('')
@@ -105,6 +111,14 @@ export default function SessionDetail({ sessionId, onClose }) {
       .then(r => r.json())
       .then(d => setFetchState(prev => ({ ...prev, loading: false, detail: d })))
       .catch(e => setFetchState(prev => ({ ...prev, loading: false, error: e.message })))
+  }, [sessionId])
+
+  // Reset analytics state when the session changes so stale data from the
+  // previous session is not shown while the new session loads.
+  useEffect(() => {
+    setActiveTab('transcript')
+    setAnalyticsData(null)
+    setAnalyticsError(null)
   }, [sessionId])
 
   useEffect(() => {
@@ -123,6 +137,23 @@ export default function SessionDetail({ sessionId, onClose }) {
         offset: nextOffset,
       })))
       .catch(() => {})
+  }
+
+  async function fetchAnalytics() {
+    if (analyticsData) return  // already loaded for this session
+    setAnalyticsLoading(true)
+    setAnalyticsError(null)
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/analytics`)
+      if (res.ok) {
+        setAnalyticsData(await res.json())
+      } else {
+        setAnalyticsError(`Failed to load analytics (${res.status})`)
+      }
+    } catch {
+      setAnalyticsError('Failed to load analytics')
+    }
+    setAnalyticsLoading(false)
   }
 
   const handleExportSkill = useCallback(async () => {
@@ -212,15 +243,37 @@ export default function SessionDetail({ sessionId, onClose }) {
           </button>
         </div>
 
+        {/* ── Tabs ── */}
+        <div className="session-detail__tabs">
+          <button
+            className={`session-detail__tab ${activeTab === 'transcript' ? 'session-detail__tab--active' : ''}`}
+            onClick={() => setActiveTab('transcript')}
+          >Transcript</button>
+          <button
+            className={`session-detail__tab ${activeTab === 'analytics' ? 'session-detail__tab--active' : ''}`}
+            onClick={() => { setActiveTab('analytics'); fetchAnalytics() }}
+          >Analytics</button>
+        </div>
+
         {/* ── Body ── */}
         <div className="detail-body">
-          {loading && <div className="detail-loading">Loading messages</div>}
-          {error && <div className="detail-error">{error}</div>}
-          {detail && <MessageThread messages={detail.messages} />}
-          {hasMore && (
-            <button className="detail-load-more" onClick={loadMore}>
-              Load more · {detail.total_messages - offset - limit} remaining
-            </button>
+          {activeTab === 'transcript' && (
+            <>
+              {loading && <div className="detail-loading">Loading messages</div>}
+              {error && <div className="detail-error">{error}</div>}
+              {detail && <MessageThread messages={detail.messages} />}
+              {hasMore && (
+                <button className="detail-load-more" onClick={loadMore}>
+                  Load more · {detail.total_messages - offset - limit} remaining
+                </button>
+              )}
+            </>
+          )}
+          {activeTab === 'analytics' && (
+            <>
+              {analyticsError && <div className="detail-error">{analyticsError}</div>}
+              <SessionAnalytics data={analyticsData} loading={analyticsLoading} />
+            </>
           )}
         </div>
       </div>
