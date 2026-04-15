@@ -987,3 +987,87 @@ def test_search_empty_query():
     data = resp.json()
     assert data["results"] == []
     assert data["total"] == 0
+
+
+# ─── compute_project_stats ────────────────────────────────────────────────────
+
+
+def test_compute_project_stats_groups_correctly():
+    sessions = [
+        {
+            "project_name": "proj-a",
+            "project_path": "/proj-a",
+            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100, "input_tokens": 60, "output_tokens": 40},
+            "model": "claude-sonnet-4-6",
+            "started_at": "2026-04-01T00:00:00",
+            "last_active": "2026-04-01T01:00:00",
+        },
+        {
+            "project_name": "proj-a",
+            "project_path": "/proj-a",
+            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200, "input_tokens": 120, "output_tokens": 80},
+            "model": "claude-opus-4-6",
+            "started_at": "2026-04-01T02:00:00",
+            "last_active": "2026-04-01T03:00:00",
+        },
+        {
+            "project_name": "proj-b",
+            "project_path": "/proj-b",
+            "stats": {"estimated_cost_usd": 0.5, "total_tokens": 50, "input_tokens": 30, "output_tokens": 20},
+            "model": "claude-haiku-4-5-20251001",
+            "started_at": "2026-04-01T00:00:00",
+            "last_active": "2026-04-01T00:30:00",
+        },
+    ]
+    result = backend.compute_project_stats(sessions)
+    assert len(result) == 2
+    proj_a = next(p for p in result if p["project_name"] == "proj-a")
+    assert proj_a["session_count"] == 2
+    assert abs(proj_a["total_cost_usd"] - 3.0) < 0.001
+    assert proj_a["first_session"] == "2026-04-01T00:00:00"
+    assert proj_a["last_session"] == "2026-04-01T03:00:00"
+
+
+def test_compute_project_stats_empty():
+    assert backend.compute_project_stats([]) == []
+
+
+def test_compute_project_stats_mixed_timestamps():
+    """Groups correctly when sessions mix Z and +00:00 timestamp suffixes."""
+    sessions = [
+        {
+            "project_path": "/proj-a",
+            "project_name": "proj-a",
+            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100},
+            "model": "claude-sonnet-4-6",
+            "started_at": "2026-04-01T00:00:00Z",
+            "last_active": "2026-04-01T01:00:00+00:00",
+        },
+        {
+            "project_path": "/proj-a",
+            "project_name": "proj-a",
+            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200},
+            "model": "claude-opus-4-6",
+            "started_at": "2026-04-01T02:00:00+00:00",
+            "last_active": "2026-04-01T03:00:00Z",
+        },
+    ]
+    result = backend.compute_project_stats(sessions)
+    assert len(result) == 1
+    p = result[0]
+    # first_session must be <= last_session after normalizing Z vs +00:00
+    assert p["first_session"].replace("Z", "+00:00") <= p["last_session"].replace("Z", "+00:00")
+
+
+def test_api_projects_returns_list(tmp_path, monkeypatch):
+    """GET /api/projects returns a JSON list."""
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+    (tmp_path / "projects").mkdir()
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/projects?time_range=1d")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)

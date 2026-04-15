@@ -907,6 +907,60 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
 
 # ─── Session aggregation ─────────────────────────────────────────────────────
 
+def _norm_ts(ts: str | None) -> str:
+    """Normalize ISO timestamp to +00:00 format for lexicographic comparison.
+
+    Handles the mix of Z-suffix and +00:00-suffix timestamps that appear in
+    JSONL session files, ensuring min/max comparisons work correctly.
+    """
+    if not ts:
+        return ""
+    return ts.replace("Z", "+00:00")
+
+
+def compute_project_stats(sessions: list[dict]) -> list[dict]:
+    # Key by project_path (falls back to project_name) so distinct projects
+    # that share a display name are not incorrectly merged.
+    projects: dict[str, dict] = {}
+    for s in sessions:
+        name = s.get("project_name") or "unknown"
+        path = s.get("project_path", "")
+        key = path or name
+        if key not in projects:
+            projects[key] = {
+                "project_name": name,
+                "project_path": path,
+                "session_count": 0,
+                "total_cost_usd": 0.0,
+                "total_tokens": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "models": set(),
+                "first_session": s.get("started_at"),
+                "last_session": s.get("last_active"),
+            }
+        p = projects[key]
+        p["session_count"] += 1
+        stats = s.get("stats", {})
+        p["total_cost_usd"] += stats.get("estimated_cost_usd", 0.0)
+        p["total_tokens"] += stats.get("total_tokens", 0)
+        p["total_input_tokens"] += stats.get("input_tokens", 0)
+        p["total_output_tokens"] += stats.get("output_tokens", 0)
+        p["models"].add(s.get("model", "unknown"))
+        started = s.get("started_at")
+        active = s.get("last_active")
+        # Normalize timestamps before comparing to handle Z vs +00:00 suffix mix
+        if started and p["first_session"] and _norm_ts(started) < _norm_ts(p["first_session"]):
+            p["first_session"] = started
+        if active and p["last_session"] and _norm_ts(active) > _norm_ts(p["last_session"]):
+            p["last_session"] = active
+
+    for p in projects.values():
+        p["models"] = sorted(p["models"])
+
+    return sorted(projects.values(), key=lambda p: p["total_cost_usd"], reverse=True)
+
+
 def get_all_sessions(hours: int | None = 24) -> list[dict]:
     if not CLAUDE_DIR.exists():
         return []
@@ -1675,6 +1729,14 @@ async def put_config(body: dict):
     return config
 
 
+@app.get("/api/projects")
+async def get_projects(time_range: str = "1d"):
+    if time_range not in TIME_RANGE_HOURS:
+        time_range = "1d"
+    sessions = get_sessions_for_range(time_range)
+    return compute_project_stats(sessions)
+
+
 @app.get("/api/db/status")
 async def db_status():
     if _db_conn is None:
@@ -1886,6 +1948,7 @@ async def websocket_endpoint(
     time_range: str = "1d",
     start: str | None = None,
     end: str | None = None,
+    project: str | None = None,
 ):
     # Validate custom date params before accepting
     if start:
@@ -1909,6 +1972,8 @@ async def websocket_endpoint(
     try:
         while True:
             sess = get_sessions_for_range(time_range, start=start, end=end)
+            if project:
+                sess = [s for s in sess if s.get("project_name") == project]
             hours = TIME_RANGE_HOURS.get(time_range)
             stats = compute_global_stats(sess, hours if hours is not None else LIVE_HOURS)
             _update_prometheus(stats)

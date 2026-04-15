@@ -200,6 +200,62 @@
   border-color: rgba(0, 212, 255, 0.25);
 }
 
+/* ── View toggle + project filter ───────────────────────── */
+
+.toolbar__view-toggle {
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.toolbar__view-btn {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+
+.toolbar__view-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.toolbar__view-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.project-filter__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--accent-dim);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.project-filter__clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  color: var(--accent);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+}
+
 /* ── Date range picker ───────────────────────────────────── */
 
 .toolbar__date-range {
