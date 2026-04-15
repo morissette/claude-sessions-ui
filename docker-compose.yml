@@ -1,0 +1,14 @@
+services:
+  claude-sessions-ui:
+    build: .
+    ports:
+      - "8765:8765"
+    volumes:
+      - "${HOME}/.claude:/root/.claude"
+    environment:
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      # Allows container to reach host's Ollama on Linux;
+      # Docker Desktop on Mac resolves host.docker.internal automatically.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

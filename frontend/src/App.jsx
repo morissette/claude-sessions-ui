@@ -4,21 +4,32 @@ import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import './App.css'
 
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
+const TIME_RANGES = [
+  { id: '1h', label: '1h' },
+  { id: '1d', label: '1d' },
+  { id: '3d', label: '3d' },
+  { id: '1w', label: '1w' },
+  { id: '2w', label: '2w' },
+  { id: '1m', label: '1m' },
+  { id: '6m', label: '6m' },
+]
 
 export default function App() {
   const [data, setData] = useState({ sessions: [], stats: {}, savings: {}, truncation: {} })
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState('activity') // activity | cost | turns
+  const [timeRange, setTimeRange] = useState('1d')
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
+  const intentionalCloseRef = useRef(false)
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
-    const ws = new WebSocket(WS_URL)
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws?time_range=${timeRange}`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onopen = () => {
       setConnected(true)
@@ -26,7 +37,13 @@ export default function App() {
     }
     ws.onclose = () => {
       setConnected(false)
-      reconnectRef.current = setTimeout(connect, 3000) // eslint-disable-line react-hooks/immutability
+      // Only schedule a reconnect for unexpected disconnects, not intentional closes
+      // (e.g. timeRange change or unmount). Without this guard the old closure would
+      // reconnect with the previous timeRange and create a duplicate connection.
+      if (!intentionalCloseRef.current) {
+        reconnectRef.current = setTimeout(connect, 3000) // eslint-disable-line react-hooks/immutability
+      }
+      intentionalCloseRef.current = false
     }
     ws.onerror = () => ws.close()
     ws.onmessage = (e) => {
@@ -35,12 +52,15 @@ export default function App() {
         setLastUpdate(new Date())
       } catch {}
     }
-  }, [])
+  }, [timeRange])
 
   useEffect(() => {
+    intentionalCloseRef.current = true
+    wsRef.current?.close()
     connect()
     return () => {
       clearTimeout(reconnectRef.current)
+      intentionalCloseRef.current = true
       wsRef.current?.close()
     }
   }, [connect])
@@ -102,7 +122,7 @@ export default function App() {
         </div>
       </header>
 
-      <StatsBar stats={stats} />
+      <StatsBar stats={stats} timeRange={timeRange} />
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">
@@ -131,6 +151,19 @@ export default function App() {
               {sessions.filter(s => s.last_active && new Date(s.last_active) >= midnight).length}
             </span>
           </button>
+        </div>
+
+        <div className="time-range-tabs">
+          <span className="sort-label">Range</span>
+          {TIME_RANGES.map(r => (
+            <button
+              key={r.id}
+              className={`sort-btn ${timeRange === r.id ? 'sort-active' : ''}`}
+              onClick={() => setTimeRange(r.id)}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
 
         <div className="sort-controls">

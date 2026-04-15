@@ -4,10 +4,14 @@
 import asyncio
 import contextlib
 import json
+import logging
+import os
+import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import psutil
@@ -20,6 +24,8 @@ from prometheus_client import (
     Gauge,
     generate_latest,
 )
+
+logger = logging.getLogger(__name__)
 
 # ─── Prometheus metrics ───────────────────────────────────────────────────────
 
@@ -36,7 +42,22 @@ subagents_total = Gauge("claude_subagents_total", "Total subagents spawned acros
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Claude Sessions UI")
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    asyncio.create_task(_startup_backfill())
+    yield
+    # Shutdown: acquire the lock so we don't race with in-flight upsert threads,
+    # then close the connection to release file locks/descriptors.
+    global _db_conn
+    with _db_lock:
+        if _db_conn is not None:
+            _db_conn.close()
+            _db_conn = None
+
+
+app = FastAPI(title="Claude Sessions UI", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,7 +66,18 @@ app.add_middleware(
 )
 
 CLAUDE_DIR = Path.home() / ".claude" / "projects"
-RECENT_HOURS = 24 #* 7  # Show sessions from last week
+DB_PATH = Path.home() / ".claude" / "claude-sessions-ui.db"
+LIVE_HOURS = 24  # Use JSONL for this window; SQLite for everything older
+
+TIME_RANGE_HOURS: dict[str, int] = {
+    "1h": 1,
+    "1d": 24,
+    "3d": 72,
+    "1w": 168,
+    "2w": 336,
+    "1m": 720,
+    "6m": 4320,
+}
 
 SUMMARIES_DIR = Path.home() / ".claude" / "session_summaries"
 SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,7 +85,7 @@ SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
 SAVINGS_FILE = Path.home() / ".claude" / "pr_poller" / "ollama_savings.jsonl"
 TRUNCATION_SAVINGS_FILE = Path.home() / ".claude" / "truncation_savings.jsonl"
 
-OLLAMA_URL = "http://localhost:11434"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 SUMMARY_MODEL = "llama3.2:3b"
 
 # Cost we'd pay for one summary via Claude Haiku (~500 input + ~15 output tokens)
@@ -79,6 +111,240 @@ _session_cache: dict[str, tuple[float, dict]] = {}
 
 # file path → (mtime, cwd string)  — quick first-pass scan
 _cwd_cache: dict[str, tuple[float, str]] = {}
+
+# SQLite connection and lock
+_db_conn: sqlite3.Connection | None = None
+_db_lock = threading.Lock()
+
+
+# ─── SQLite storage ──────────────────────────────────────────────────────────
+
+
+def _normalize_ts(ts: str) -> str:
+    """Normalize an ISO 8601 timestamp to consistent +00:00 UTC format for SQLite sorting.
+
+    JSONL files use the 'Z' suffix; Python isoformat() uses '+00:00'. Storing a
+    mix causes lexicographic range queries to mis-sort because 'Z' (0x5A) sorts
+    after '+' (0x2B) in ASCII. This converts both forms to the +00:00 variant.
+    """
+    if not ts:
+        return ts
+    try:
+        normalized = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.isoformat()
+    except (ValueError, AttributeError):
+        return ts
+
+
+def init_db() -> None:
+    """Create the SQLite DB, table, and indexes. Must be called once at startup."""
+    global _db_conn
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _db_conn is not None:
+        _db_conn.close()
+    _db_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    _db_conn.execute("PRAGMA journal_mode=WAL")
+    _db_conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id            TEXT PRIMARY KEY,
+            project_path          TEXT NOT NULL,
+            project_name          TEXT NOT NULL,
+            git_branch            TEXT,
+            title                 TEXT NOT NULL,
+            model                 TEXT NOT NULL,
+            turns                 INTEGER NOT NULL DEFAULT 0,
+            subagent_count        INTEGER NOT NULL DEFAULT 0,
+            subagents_json        TEXT NOT NULL DEFAULT '[]',
+            started_at            TEXT NOT NULL,
+            last_active           TEXT NOT NULL,
+            input_tokens          INTEGER NOT NULL DEFAULT 0,
+            output_tokens         INTEGER NOT NULL DEFAULT 0,
+            cache_create_tokens   INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+            total_tokens          INTEGER NOT NULL DEFAULT 0,
+            estimated_cost_usd    REAL NOT NULL DEFAULT 0.0,
+            compact_potential_usd REAL NOT NULL DEFAULT 0.0,
+            last_synced_at        TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active);
+        CREATE INDEX IF NOT EXISTS idx_sessions_started_at  ON sessions(started_at);
+    """)
+    # Migrate: add last_activity column if it doesn't exist (SQLite has no ADD COLUMN IF NOT EXISTS)
+    with contextlib.suppress(sqlite3.OperationalError):
+        _db_conn.execute("ALTER TABLE sessions ADD COLUMN last_activity TEXT")
+    _db_conn.commit()
+
+
+def upsert_sessions_to_db(sessions: list[dict]) -> None:
+    """Upsert a list of session dicts into the SQLite DB."""
+    if not sessions or _db_conn is None:
+        return
+    now_iso = datetime.now(UTC).isoformat()
+    rows = [
+        (
+            s["session_id"],
+            s["project_path"],
+            s["project_name"],
+            s.get("git_branch"),
+            s["title"],
+            s["model"],
+            s["turns"],
+            s["subagent_count"],
+            json.dumps(s.get("subagents", [])),
+            _normalize_ts(s["started_at"]),
+            _normalize_ts(s["last_active"]),
+            s["stats"]["input_tokens"],
+            s["stats"]["output_tokens"],
+            s["stats"]["cache_create_tokens"],
+            s["stats"]["cache_read_tokens"],
+            s["stats"]["total_tokens"],
+            s["stats"]["estimated_cost_usd"],
+            s.get("compact_potential_usd", 0.0),
+            now_iso,
+            s.get("last_activity"),
+        )
+        for s in sessions
+    ]
+    with _db_lock:
+        _db_conn.executemany(
+            """
+            INSERT INTO sessions (
+                session_id, project_path, project_name, git_branch, title, model,
+                turns, subagent_count, subagents_json, started_at, last_active,
+                input_tokens, output_tokens, cache_create_tokens, cache_read_tokens,
+                total_tokens, estimated_cost_usd, compact_potential_usd, last_synced_at,
+                last_activity
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                project_path=excluded.project_path,
+                project_name=excluded.project_name,
+                git_branch=excluded.git_branch,
+                title=excluded.title,
+                model=excluded.model,
+                turns=excluded.turns,
+                subagent_count=excluded.subagent_count,
+                subagents_json=excluded.subagents_json,
+                last_active=excluded.last_active,
+                input_tokens=excluded.input_tokens,
+                output_tokens=excluded.output_tokens,
+                cache_create_tokens=excluded.cache_create_tokens,
+                cache_read_tokens=excluded.cache_read_tokens,
+                total_tokens=excluded.total_tokens,
+                estimated_cost_usd=excluded.estimated_cost_usd,
+                compact_potential_usd=excluded.compact_potential_usd,
+                last_synced_at=excluded.last_synced_at,
+                last_activity=excluded.last_activity
+            """,
+            rows,
+        )
+        _db_conn.commit()
+
+
+def get_sessions_from_db(hours: int) -> list[dict]:
+    """Return sessions from SQLite for time ranges beyond LIVE_HOURS."""
+    if _db_conn is None:
+        return []
+    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    processes = get_running_claude_processes()
+    session_pid: dict[str, int] = {
+        info["session_id"]: pid
+        for pid, info in processes.items()
+        if info["session_id"]
+    }
+    with _db_lock:
+        cur = _db_conn.execute(
+            "SELECT * FROM sessions WHERE last_active >= ? ORDER BY last_active DESC",
+            (cutoff,),
+        )
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+    sessions = []
+    for row in rows:
+        s: dict = {
+            "session_id": row["session_id"],
+            "project_path": row["project_path"],
+            "project_name": row["project_name"],
+            "git_branch": row["git_branch"],
+            "title": row["title"],
+            "model": row["model"],
+            "turns": row["turns"],
+            "subagent_count": row["subagent_count"],
+            "subagents": json.loads(row["subagents_json"]),
+            "started_at": row["started_at"],
+            "last_active": row["last_active"],
+            "last_activity": row.get("last_activity"),
+            "stats": {
+                "input_tokens": row["input_tokens"],
+                "output_tokens": row["output_tokens"],
+                "cache_create_tokens": row["cache_create_tokens"],
+                "cache_read_tokens": row["cache_read_tokens"],
+                "total_tokens": row["total_tokens"],
+                "estimated_cost_usd": row["estimated_cost_usd"],
+            },
+            "compact_potential_usd": row["compact_potential_usd"],
+            "is_active": False,
+            "pid": None,
+            "ai_summary": get_cached_summary(row["session_id"]),
+        }
+        if row["session_id"] in session_pid:
+            s["is_active"] = True
+            s["pid"] = session_pid[row["session_id"]]
+        sessions.append(s)
+
+    sessions.sort(key=lambda s: not s["is_active"])
+    return sessions
+
+
+def get_sessions_for_range(time_range: str) -> list[dict]:
+    """Dispatch to JSONL (short ranges) or SQLite (historical ranges)."""
+    hours = TIME_RANGE_HOURS.get(time_range, 24)
+    if hours <= LIVE_HOURS:
+        return get_all_sessions(hours=hours)
+    return get_sessions_from_db(hours=hours)
+
+
+def get_all_sessions_unbounded() -> list[dict]:
+    """Parse all JSONL sessions regardless of age — used for startup DB backfill."""
+    return get_all_sessions(hours=None)
+
+
+def get_session_by_id(session_id: str) -> dict | None:
+    """Return a single session dict by ID, checking SQLite first then JSONL fallback."""
+    # Try SQLite first (covers historical sessions not in the live 24h window)
+    if _db_conn is not None:
+        with _db_lock:
+            cur = _db_conn.execute(
+                "SELECT title FROM sessions WHERE session_id = ?", (session_id,)
+            )
+            row = cur.fetchone()
+        if row is not None:
+            return {"session_id": session_id, "title": row[0]}
+    # Fall back to JSONL for sessions within the live window
+    sessions = get_all_sessions()
+    return next((s for s in sessions if s["session_id"] == session_id), None)
+
+
+async def _startup_backfill() -> None:
+    """Asynchronously backfill all historical JSONL sessions into SQLite."""
+    try:
+        loop = asyncio.get_running_loop()
+        sessions = await loop.run_in_executor(None, get_all_sessions_unbounded)
+        await loop.run_in_executor(None, upsert_sessions_to_db, sessions)
+        logger.info("Startup backfill complete: %d sessions stored", len(sessions))
+    except Exception:
+        logger.exception("Startup backfill failed")
+
+
+async def _upsert_in_background(sessions: list[dict]) -> None:
+    """Run upsert_sessions_to_db in a thread pool, logging any error instead of dropping it."""
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
+    except Exception:
+        logger.exception("Background SQLite upsert failed")
 
 
 # ─── Process discovery ────────────────────────────────────────────────────────
@@ -299,7 +565,7 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
 
 # ─── Session aggregation ─────────────────────────────────────────────────────
 
-def get_all_sessions() -> list[dict]:
+def get_all_sessions(hours: int | None = 24) -> list[dict]:
     if not CLAUDE_DIR.exists():
         return []
 
@@ -314,7 +580,7 @@ def get_all_sessions() -> list[dict]:
             session_pid[info["session_id"]] = pid
 
     now = time.time()
-    cutoff = now - RECENT_HOURS * 3600
+    cutoff = (now - hours * 3600) if hours is not None else 0
     sessions: list[dict] = []
 
     # For CWD-based matching (no --resume), only the NEWEST session in each
@@ -379,7 +645,7 @@ def get_all_sessions() -> list[dict]:
     return sessions
 
 
-def compute_global_stats(sessions: list[dict]) -> dict:
+def compute_global_stats(sessions: list[dict], time_range_hours: int = 24) -> dict:
     active_count = sum(1 for s in sessions if s["is_active"])
     total_cost = sum(s["stats"]["estimated_cost_usd"] for s in sessions)
     total_tokens = sum(s["stats"]["total_tokens"] for s in sessions)
@@ -390,19 +656,18 @@ def compute_global_stats(sessions: list[dict]) -> dict:
     total_turns = sum(s["turns"] for s in sessions)
     total_subagents = sum(s["subagent_count"] for s in sessions)
 
-    local_tz = datetime.now().astimezone().tzinfo
-    midnight = datetime.now(local_tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    def _since_midnight(ts: str | None) -> bool:
+    period_cutoff = datetime.now(UTC) - timedelta(hours=time_range_hours)
+    def _in_period(ts: str | None) -> bool:
         if not ts:
             return False
         try:
-            return datetime.fromisoformat(ts[:19]).replace(tzinfo=UTC) >= midnight
+            return datetime.fromisoformat(_normalize_ts(ts)) >= period_cutoff
         except ValueError:
             return False
     cost_today_val = sum(
         s["stats"]["estimated_cost_usd"]
         for s in sessions
-        if _since_midnight(s.get("last_active"))
+        if _in_period(s.get("last_active"))
     )
 
     return {
@@ -561,11 +826,36 @@ def compute_ollama_savings() -> dict:
 # ─── HTTP endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/api/sessions")
-async def list_sessions():
-    sess = get_all_sessions()
-    stats = compute_global_stats(sess)
+async def list_sessions(time_range: str = "1d"):
+    if time_range not in TIME_RANGE_HOURS:
+        time_range = "1d"
+    hours = TIME_RANGE_HOURS[time_range]
+    sess = get_sessions_for_range(time_range)
+    stats = compute_global_stats(sess, hours)
     _update_prometheus(stats)
-    return {"sessions": sess, "stats": stats, "savings": compute_ollama_savings(), "truncation": compute_truncation_savings()}
+    # Only upsert when sessions came from JSONL (live path); historical DB reads
+    # don't need to be written back and would add unnecessary write contention.
+    # Reuse a single in-flight task to avoid queuing unbounded concurrent upserts.
+    global _list_upsert_task
+    if hours <= LIVE_HOURS and (_list_upsert_task is None or _list_upsert_task.done()):
+        _list_upsert_task = asyncio.create_task(_upsert_in_background(sess))
+    return {
+        "sessions": sess,
+        "stats": stats,
+        "savings": compute_ollama_savings(),
+        "truncation": compute_truncation_savings(),
+        "time_range": time_range,
+    }
+
+
+@app.get("/api/db/status")
+async def db_status():
+    if _db_conn is None:
+        return {"total_stored": 0, "oldest": None, "newest": None, "db_path": str(DB_PATH)}
+    with _db_lock:
+        cur = _db_conn.execute("SELECT COUNT(*), MIN(last_active), MAX(last_active) FROM sessions")
+        count, oldest, newest = cur.fetchone()
+    return {"total_stored": count, "oldest": oldest, "newest": newest, "db_path": str(DB_PATH)}
 
 
 @app.get("/api/ollama")
@@ -587,9 +877,10 @@ async def summarize_session(session_id: str):
     if cached:
         return {"session_id": session_id, "summary": cached, "cached": True}
 
-    # Find the session to get its title text
-    sessions = get_all_sessions()
-    session = next((s for s in sessions if s["session_id"] == session_id), None)
+    # Find the session to get its title text — check SQLite first so historical
+    # sessions (older than LIVE_HOURS) can be summarized without a 404.
+    loop = asyncio.get_running_loop()
+    session = await loop.run_in_executor(None, get_session_by_id, session_id)
     if session is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Session not found")
@@ -599,7 +890,6 @@ async def summarize_session(session_id: str):
         return {"session_id": session_id, "summary": None, "cached": False}
 
     # Run Ollama in a thread so we don't block the event loop
-    loop = asyncio.get_event_loop()
     summary = await loop.run_in_executor(None, ollama_summarize, raw_title)
 
     if summary:
@@ -611,7 +901,7 @@ async def summarize_session(session_id: str):
 async def prometheus_metrics():
     # Trigger a refresh so metrics are fresh
     sess = get_all_sessions()
-    stats = compute_global_stats(sess)
+    stats = compute_global_stats(sess, LIVE_HOURS)
     _update_prometheus(stats)
     return PlainTextResponse(
         generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST
@@ -621,19 +911,36 @@ async def prometheus_metrics():
 # ─── WebSocket ────────────────────────────────────────────────────────────────
 
 _active_ws: list[WebSocket] = []
+_list_upsert_task: asyncio.Task | None = None
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
+    if time_range not in TIME_RANGE_HOURS:
+        time_range = "1d"
     await ws.accept()
     _active_ws.append(ws)
+    upsert_task: asyncio.Task | None = None  # per-connection handle prevents backlog buildup
     try:
         while True:
-            sess = get_all_sessions()
-            stats = compute_global_stats(sess)
+            sess = get_sessions_for_range(time_range)
+            hours = TIME_RANGE_HOURS[time_range]
+            stats = compute_global_stats(sess, hours)
             _update_prometheus(stats)
-            await ws.send_json({"sessions": sess, "stats": stats, "savings": compute_ollama_savings(), "truncation": compute_truncation_savings()})
-            await asyncio.sleep(2)
+            # Only upsert for live JSONL ranges; skip a new upsert if the previous one is
+            # still running to prevent an unbounded backlog of write tasks.
+            if hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
+                upsert_task = asyncio.create_task(_upsert_in_background(sess))
+            await ws.send_json({
+                "sessions": sess,
+                "stats": stats,
+                "savings": compute_ollama_savings(),
+                "truncation": compute_truncation_savings(),
+                "time_range": time_range,
+            })
+            # Historical ranges can poll slower — no live JSONL to watch
+            interval = 2 if TIME_RANGE_HOURS.get(time_range, 24) <= LIVE_HOURS else 10
+            await asyncio.sleep(interval)
     except WebSocketDisconnect:
         pass
     except Exception:
