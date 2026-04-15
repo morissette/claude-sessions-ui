@@ -2,10 +2,9 @@
 
 from pathlib import Path
 
-import uvicorn
-
 # Import the app from backend_compat so it carries all routes and lifespan
 import backend_compat
+import uvicorn
 
 LOG_FILE = str(Path.home() / ".claude" / "claude-sessions-ui.log")
 log_config = {
