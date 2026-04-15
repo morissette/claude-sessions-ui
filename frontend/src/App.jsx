@@ -5,6 +5,7 @@ import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
 import { usePersistedState } from './hooks/usePersistedState.js'
 import TrendsChart from './components/TrendsChart'
+import { ProjectList } from './components/ProjectCard'
 import './App.css'
 
 const PREFS_DEFAULTS = {
@@ -53,6 +54,9 @@ export default function App() {
   const [customEnd, setCustomEnd]     = useState('')
   const [customError, setCustomError] = useState('')
   const [trendsExpanded, setTrendsExpanded] = useState(false)
+  const [viewMode, setViewMode] = useState('sessions')
+  const [selectedProject, setSelectedProject] = useState(null)
+  const [projectData, setProjectData] = useState([])
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const intentionalCloseRef = useRef(false)
@@ -76,7 +80,8 @@ export default function App() {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
-    const wsUrl = buildWsUrl(timeRange, customStart, customEnd)
+    let wsUrl = buildWsUrl(timeRange, customStart, customEnd)
+    if (selectedProject) wsUrl += `&project=${encodeURIComponent(selectedProject)}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onopen = () => {
@@ -100,7 +105,7 @@ export default function App() {
         setLastUpdate(new Date())
       } catch {}
     }
-  }, [timeRange, customStart, customEnd])
+  }, [timeRange, customStart, customEnd, selectedProject])
 
   useEffect(() => {
     intentionalCloseRef.current = true
@@ -120,6 +125,19 @@ export default function App() {
     const id = setInterval(checkOllama, 15000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (viewMode !== 'projects') return
+    fetch(`/api/projects?time_range=${timeRange}`)
+      .then(r => r.json())
+      .then(setProjectData)
+      .catch(() => {})
+  }, [viewMode, timeRange])
+
+  function handleProjectSelect(project) {
+    setSelectedProject(project.project_name)
+    setViewMode('sessions')
+  }
 
   const sessions = data.sessions || []
   const stats = data.stats || {}
@@ -170,7 +188,7 @@ export default function App() {
         </div>
       </header>
 
-      <StatsBar stats={stats} timeRange={timeRange} />
+      <StatsBar stats={stats} timeRange={timeRange} sessions={sorted} />
       <section className="trends">
         <button className="trends__toggle" onClick={() => setTrendsExpanded(e => !e)}>
           Cost Trends
@@ -181,6 +199,29 @@ export default function App() {
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">
+        <div className="toolbar__view-toggle">
+          <button
+            className={`toolbar__view-btn ${viewMode === 'sessions' ? 'active' : ''}`}
+            onClick={() => setViewMode('sessions')}
+          >Sessions</button>
+          <button
+            className={`toolbar__view-btn ${viewMode === 'projects' ? 'active' : ''}`}
+            onClick={() => setViewMode('projects')}
+          >Projects</button>
+        </div>
+
+        {selectedProject && (
+          <span className="project-filter__tag">
+            {selectedProject}
+            <button
+              type="button"
+              className="project-filter__clear"
+              aria-label="Clear project filter"
+              onClick={() => setSelectedProject(null)}
+            >×</button>
+          </span>
+        )}
+
         <div className="filter-tabs">
           <button
             className={`ftab ${filter === 'all' ? 'ftab-active' : ''}`}
@@ -252,28 +293,31 @@ export default function App() {
       </div>
 
       <main className="sessions-container">
-        {sorted.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">◇</div>
-            <p className="empty-title">No sessions found</p>
-            <p className="empty-sub">
-              {filter !== 'all'
-                ? `No ${filter} sessions — try "All"`
-                : 'Start a Claude Code session to see it here'}
-            </p>
-          </div>
-        ) : (
-          <div className="sessions-grid">
-            {sorted.map(session => (
-              <SessionCard
-                key={session.session_id}
-                session={session}
-                ollama={ollama}
-                onSelect={setSelectedSessionId}
-              />
-            ))}
-          </div>
-        )}
+        {viewMode === 'projects'
+          ? <ProjectList projects={projectData} onSelect={handleProjectSelect} />
+          : sorted.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">◇</div>
+              <p className="empty-title">No sessions found</p>
+              <p className="empty-sub">
+                {filter !== 'all'
+                  ? `No ${filter} sessions — try "All"`
+                  : 'Start a Claude Code session to see it here'}
+              </p>
+            </div>
+          ) : (
+            <div className="sessions-grid">
+              {sorted.map(session => (
+                <SessionCard
+                  key={session.session_id}
+                  session={session}
+                  ollama={ollama}
+                  onSelect={setSelectedSessionId}
+                />
+              ))}
+            </div>
+          )
+        }
       </main>
 
       {selectedSessionId && (
