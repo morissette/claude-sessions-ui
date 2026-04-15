@@ -934,6 +934,24 @@ class TestExportSkill:
         assert response.status_code == 404
 
 
+# ─── Analytics endpoint ───────────────────────────────────────────────────────
+
+
+def test_analytics_404():
+    from fastapi.testclient import TestClient
+    client = TestClient(backend.app)
+    resp = client.get("/api/sessions/nonexistent-session-id-xyz/analytics")
+    assert resp.status_code == 404
+
+
+def test_analytics_invalid_session_id():
+    from fastapi.testclient import TestClient
+    client = TestClient(backend.app)
+    resp = client.get("/api/sessions/../etc/passwd/analytics")
+    # Should be 400 or 404, not 500
+    assert resp.status_code in (400, 404, 422)
+
+
 # ─── Config API ───────────────────────────────────────────────────────────────
 
 
