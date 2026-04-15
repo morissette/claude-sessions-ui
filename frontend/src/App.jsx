@@ -36,13 +36,11 @@ export default function App() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { filter, sort, timeRange, selectedProject, viewMode } = prefs
+  const { filter, sort, timeRange } = prefs
 
-  const setFilter          = (v) => setPrefs(p => ({...p, filter:          v}))
-  const setSort            = (v) => setPrefs(p => ({...p, sort:            v}))
-  const setTimeRange       = (v) => setPrefs(p => ({...p, timeRange:       v}))
-  const setSelectedProject = (v) => setPrefs(p => ({...p, selectedProject: v}))
-  const setViewMode        = (v) => setPrefs(p => ({...p, viewMode:        v}))
+  const setFilter    = (v) => setPrefs(p => ({...p, filter:    v}))
+  const setSort      = (v) => setPrefs(p => ({...p, sort:      v}))
+  const setTimeRange = (v) => setPrefs(p => ({...p, timeRange: v}))
 
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
