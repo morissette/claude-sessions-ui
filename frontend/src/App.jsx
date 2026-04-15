@@ -3,6 +3,7 @@ import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
+import SearchResults from './components/SearchResults'
 import './App.css'
 
 const TIME_RANGES = [
@@ -24,6 +25,9 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
   const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const intentionalCloseRef = useRef(false)
@@ -74,6 +78,22 @@ export default function App() {
     const id = setInterval(checkOllama, 15000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults(null); return }
+    const t = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&time_range=${timeRange}`)
+        const data = await res.json()
+        setSearchResults(data)
+      } catch {
+        setSearchResults({ query: searchQuery, results: [], total: 0, index_ready: true })
+      }
+      setSearchLoading(false)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchQuery, timeRange])
 
   const sessions = data.sessions || []
   const stats = data.stats || {}
@@ -155,6 +175,14 @@ export default function App() {
           </button>
         </div>
 
+        <input
+          className="toolbar__search"
+          type="search"
+          placeholder="Search sessions…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+
         <div className="time-range-tabs">
           <span className="sort-label">Range</span>
           {TIME_RANGES.map(r => (
@@ -187,28 +215,31 @@ export default function App() {
       </div>
 
       <main className="sessions-container">
-        {sorted.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">◇</div>
-            <p className="empty-title">No sessions found</p>
-            <p className="empty-sub">
-              {filter !== 'all'
-                ? `No ${filter} sessions — try "All"`
-                : 'Start a Claude Code session to see it here'}
-            </p>
-          </div>
-        ) : (
-          <div className="sessions-grid">
-            {sorted.map(session => (
-              <SessionCard
-                key={session.session_id}
-                session={session}
-                ollama={ollama}
-                onSelect={setSelectedSessionId}
-              />
-            ))}
-          </div>
-        )}
+        {searchResults !== null
+          ? <SearchResults results={searchResults} loading={searchLoading} onSelect={setSelectedSessionId} />
+          : sorted.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">◇</div>
+              <p className="empty-title">No sessions found</p>
+              <p className="empty-sub">
+                {filter !== 'all'
+                  ? `No ${filter} sessions — try "All"`
+                  : 'Start a Claude Code session to see it here'}
+              </p>
+            </div>
+          ) : (
+            <div className="sessions-grid">
+              {sorted.map(session => (
+                <SessionCard
+                  key={session.session_id}
+                  session={session}
+                  ollama={ollama}
+                  onSelect={setSelectedSessionId}
+                />
+              ))}
+            </div>
+          )
+        }
       </main>
 
       {selectedSessionId && (

@@ -885,3 +885,16 @@ class TestExportSkill:
         with TestClient(backend.app) as client:
             response = client.post("/api/sessions/doesnotexist/export-skill")
         assert response.status_code == 404
+
+
+# ─── Search endpoint ──────────────────────────────────────────────────────────
+
+
+def test_search_empty_query():
+    from fastapi.testclient import TestClient
+    client = TestClient(backend.app)
+    resp = client.get("/api/search?q=")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["results"] == []
+    assert data["total"] == 0
