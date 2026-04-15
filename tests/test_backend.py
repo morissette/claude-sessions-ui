@@ -712,3 +712,176 @@ class TestApiEndpoints:
         response = client.get("/metrics")
         assert response.status_code == 200
         assert "claude_sessions_total" in response.text
+
+
+# ─── TestSessionDetail ────────────────────────────────────────────────────────
+
+
+class TestSessionDetail:
+    def test_find_session_file_returns_path(self, tmp_path, monkeypatch):
+        proj = tmp_path / "projects" / "myproject"
+        proj.mkdir(parents=True)
+        jsonl = proj / "abc123.jsonl"
+        jsonl.write_text("{}\n")
+        monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+        result = backend.find_session_file("abc123")
+        assert result == jsonl
+
+    def test_find_session_file_missing_returns_none(self, tmp_path, monkeypatch):
+        (tmp_path / "projects").mkdir()
+        monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+        assert backend.find_session_file("nonexistent") is None
+
+    def test_parse_session_detail_user_message(self, tmp_path):
+        jsonl = tmp_path / "sess1.jsonl"
+        jsonl.write_text(json.dumps({
+            "type": "user",
+            "timestamp": "2024-01-01T10:00:00Z",
+            "message": {"content": "Hello, fix the bug"},
+        }) + "\n")
+        result = backend.parse_session_detail(jsonl)
+        assert result["session_id"] == "sess1"
+        assert result["total_messages"] == 1
+        msgs = result["messages"]
+        assert len(msgs) == 1
+        assert msgs[0]["type"] == "user"
+        assert msgs[0]["content"] == "Hello, fix the bug"
+
+    def test_parse_session_detail_tool_pairing(self, tmp_path):
+        jsonl = tmp_path / "sess2.jsonl"
+        lines = [
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "ls"}}
+            ]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "tu_1", "content": "file.txt"}
+            ]}},
+        ]
+        jsonl.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+        result = backend.parse_session_detail(jsonl)
+        tool_results = [m for m in result["messages"] if m["type"] == "tool_result"]
+        assert len(tool_results) == 1
+        assert tool_results[0]["tool_name"] == "Bash"
+        assert tool_results[0]["tool_use_id"] == "tu_1"
+
+    def test_parse_session_detail_pagination(self, tmp_path):
+        jsonl = tmp_path / "sess3.jsonl"
+        lines = [{"type": "user", "message": {"content": f"msg {i}"}} for i in range(10)]
+        jsonl.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+        result = backend.parse_session_detail(jsonl, offset=5, limit=3)
+        assert result["total_messages"] == 10
+        assert result["offset"] == 5
+        assert len(result["messages"]) == 3
+        assert result["messages"][0]["content"] == "msg 5"
+
+    def test_detail_endpoint_404_unknown_session(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+        monkeypatch.setattr(backend, "_db_conn", None)
+        monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+        (tmp_path / "projects").mkdir()
+        with TestClient(backend.app) as client:
+            response = client.get("/api/sessions/doesnotexist/detail")
+        assert response.status_code == 404
+
+
+# ─── TestExportSkill ──────────────────────────────────────────────────────────
+
+
+class TestExportSkill:
+    def test_slugify_simple_title(self):
+        assert backend.slugify_skill_name("Debug TS Errors") == "debug-ts-errors"
+
+    def test_slugify_strips_special_chars(self):
+        result = backend.slugify_skill_name("Fix: auth/login (bug)")
+        assert ":" not in result
+        assert "/" not in result
+        assert "(" not in result
+
+    def test_slugify_truncates_long_names(self):
+        long_title = "a" * 100
+        result = backend.slugify_skill_name(long_title)
+        assert len(result) <= 60
+
+    def test_slugify_empty_fallback(self):
+        assert backend.slugify_skill_name("") == "untitled-skill"
+
+    def test_extract_skill_data_tools(self, tmp_path):
+        jsonl = tmp_path / "sess.jsonl"
+        lines = [
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}},
+                {"type": "tool_use", "id": "t2", "name": "Read", "input": {}},
+            ]}},
+        ]
+        jsonl.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+        data = backend.extract_session_skill_data(jsonl)
+        assert "Bash" in data["tools_used"]
+        assert "Read" in data["tools_used"]
+
+    def test_extract_skill_data_messages(self, tmp_path):
+        jsonl = tmp_path / "sess.jsonl"
+        lines = [
+            {"type": "user", "message": {"content": "fix the login bug"}},
+            {"type": "assistant", "message": {"content": [
+                {"type": "text", "text": "Done, fixed it."}
+            ]}},
+        ]
+        jsonl.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+        data = backend.extract_session_skill_data(jsonl)
+        assert data["first_user_message"] == "fix the login bug"
+        assert "Done" in data["last_assistant_message"]
+
+    def test_resolve_skill_path_no_conflict(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(backend, "SKILLS_DIR", tmp_path)
+        path = backend.resolve_skill_path("my-skill", "global")
+        assert path == tmp_path / "my-skill.md"
+
+    def test_resolve_skill_path_conflict(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(backend, "SKILLS_DIR", tmp_path)
+        (tmp_path / "my-skill.md").write_text("existing")
+        path = backend.resolve_skill_path("my-skill", "global")
+        assert path == tmp_path / "my-skill-2.md"
+
+    def test_template_generate_skill_returns_tuple(self, tmp_path):
+        data = {
+            "title": "Fix auth bug",
+            "tools_used": ["Bash", "Edit"],
+            "first_user_message": "fix the login",
+            "last_assistant_message": "fixed",
+        }
+        name, body = backend.template_generate_skill(data)
+        assert isinstance(name, str)
+        assert isinstance(body, str)
+        assert len(name) > 0
+        assert len(body) > 0
+
+    def test_export_endpoint_creates_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+        monkeypatch.setattr(backend, "_db_conn", None)
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        monkeypatch.setattr(backend, "SKILLS_DIR", skills_dir)
+        proj = tmp_path / "projects" / "proj"
+        proj.mkdir(parents=True)
+        jsonl = proj / "mysess.jsonl"
+        jsonl.write_text(json.dumps({
+            "type": "user",
+            "message": {"content": "fix the bug"},
+        }) + "\n")
+        monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+        monkeypatch.setattr(backend, "ollama_is_available", lambda: False)
+        with TestClient(backend.app) as client:
+            response = client.post("/api/sessions/mysess/export-skill?scope=global")
+        assert response.status_code == 200
+        data = response.json()
+        assert "skill_name" in data
+        assert Path(data["skill_path"]).exists()
+
+    def test_export_endpoint_404_unknown_session(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+        monkeypatch.setattr(backend, "_db_conn", None)
+        monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+        (tmp_path / "projects").mkdir()
+        with TestClient(backend.app) as client:
+            response = client.post("/api/sessions/doesnotexist/export-skill")
+        assert response.status_code == 404

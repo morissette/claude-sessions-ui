@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import SessionCard from '../components/SessionCard'
@@ -127,18 +127,18 @@ describe('SessionCard', () => {
 
   it('shows summarize button when ollama is ready and no summary', () => {
     render(<SessionCard session={baseSession} ollama={ollamaReady} />)
-    expect(screen.getByRole('button')).toBeInTheDocument()
+    expect(screen.getByTitle(`Summarize with ${ollamaReady.model}`)).toBeInTheDocument()
   })
 
   it('does not show summarize button when ollama not ready', () => {
     render(<SessionCard session={baseSession} ollama={ollamaOff} />)
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/Summarize with/)).not.toBeInTheDocument()
   })
 
   it('does not show summarize button when summary already exists', () => {
     const session = { ...baseSession, ai_summary: 'Existing summary' }
     render(<SessionCard session={session} ollama={ollamaReady} />)
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/Summarize with/)).not.toBeInTheDocument()
   })
 
   it('shows shortened session id', () => {
@@ -165,5 +165,38 @@ describe('SessionCard', () => {
   it('shows /compact badge when compact_potential_usd is significant', () => {
     render(<SessionCard session={{ ...baseSession, compact_potential_usd: 0.01 }} ollama={ollamaOff} />)
     expect(screen.getByText('⚡ /compact')).toBeInTheDocument()
+  })
+
+  it('shows export button', () => {
+    render(<SessionCard session={baseSession} ollama={ollamaOff} />)
+    expect(screen.getByText('Export as skill')).toBeInTheDocument()
+  })
+
+  it('shows export scope select', () => {
+    render(<SessionCard session={baseSession} ollama={ollamaOff} />)
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+
+  it('shows skill name on successful export', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ skill_name: 'fix-auth-bug', skill_path: '/tmp/fix-auth-bug.md', scope: 'global', ollama_used: false }),
+      })
+    )
+    const user = userEvent.setup()
+    render(<SessionCard session={baseSession} ollama={ollamaOff} />)
+    await user.click(screen.getByText('Export as skill'))
+    await waitFor(() => expect(screen.getByText('✓ /fix-auth-bug')).toBeInTheDocument())
+    vi.restoreAllMocks()
+  })
+
+  it('shows retry on export error', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, text: () => Promise.resolve('error') }))
+    const user = userEvent.setup()
+    render(<SessionCard session={baseSession} ollama={ollamaOff} />)
+    await user.click(screen.getByText('Export as skill'))
+    await waitFor(() => expect(screen.getByText('Retry export')).toBeInTheDocument())
+    vi.restoreAllMocks()
   })
 })

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
+import SessionDetail from './components/SessionDetail'
 import './App.css'
 
 const TIME_RANGES = [
@@ -22,6 +23,7 @@ export default function App() {
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
+  const [selectedSessionId, setSelectedSessionId] = useState(null)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const intentionalCloseRef = useRef(false)
@@ -198,11 +200,24 @@ export default function App() {
         ) : (
           <div className="sessions-grid">
             {sorted.map(session => (
-              <SessionCard key={session.session_id} session={session} ollama={ollama} />
+              <SessionCard
+                key={session.session_id}
+                session={session}
+                ollama={ollama}
+                onSelect={setSelectedSessionId}
+              />
             ))}
           </div>
         )}
       </main>
+
+      {selectedSessionId && (
+        <SessionDetail
+          key={selectedSessionId}
+          sessionId={selectedSessionId}
+          onClose={() => setSelectedSessionId(null)}
+        />
+      )}
     </div>
   )
 }
