@@ -59,9 +59,9 @@ export default function StatsBar({ stats, timeRange }) {
     },
     {
       label: 'Subagents',
-      value: s.total_subagents ?? '—',
+      value: fmt(s.total_subagents ?? 0),
       sub: 'spawned total',
-      accent: 'sub',
+      accent: 'agents',
     },
   ]
 

@@ -50,4 +50,4 @@
 .stat-tokens .stat-value { color: var(--tokens); }
 .stat-cache  .stat-value { color: #67e8f9; }
 .stat-turns  .stat-value { color: #a78bfa; }
-.stat-sub_   .stat-value { color: var(--active); }
+.stat-agents .stat-value { color: var(--active); }

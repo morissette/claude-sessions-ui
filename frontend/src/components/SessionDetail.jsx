@@ -1,35 +1,64 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import './SessionDetail.css'
 
 function MessageThread({ messages }) {
   if (messages.length === 0) {
-    return <div className="detail-empty">No messages</div>
+    return <div className="detail-empty">No messages in this session</div>
   }
-  return messages.map((msg, i) => {
+
+  const items = []
+  let prevRole = null
+
+  messages.forEach((msg, i) => {
+    const role =
+      msg.type === 'user' ? 'user'
+      : msg.type === 'assistant' ? 'assistant'
+      : msg.type === 'tool_use' ? 'tool'
+      : msg.type === 'tool_result' ? 'result'
+      : msg.type === 'summary' ? 'summary'
+      : null
+
+    if (
+      prevRole !== null &&
+      role !== prevRole &&
+      !(prevRole === 'tool' && role === 'result')
+    ) {
+      items.push(<div key={`div-${i}`} className="msg-divider" />)
+    }
+    prevRole = role
+
     if (msg.type === 'user') {
-      return (
-        <div key={i} className="msg-user">
-          {msg.timestamp && <span className="msg-ts">{new Date(msg.timestamp).toLocaleTimeString()}</span>}
-          <div className="msg-text">{msg.content}</div>
+      items.push(
+        <div key={i} className="msg-group">
+          <span className="msg-role-label msg-role-label--user">You</span>
+          <div className="msg-user">
+            {msg.timestamp && (
+              <span className="msg-ts">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+            )}
+            <div className="msg-text">{msg.content}</div>
+          </div>
         </div>
       )
-    }
-    if (msg.type === 'assistant') {
-      return (
-        <div key={i} className="msg-assistant">
-          {msg.timestamp && <span className="msg-ts">{new Date(msg.timestamp).toLocaleTimeString()}</span>}
-          {msg.thinking && (
-            <details className="msg-thinking">
-              <summary>Thinking</summary>
-              <pre className="msg-pre">{msg.thinking}</pre>
-            </details>
-          )}
-          <div className="msg-text">{msg.content}</div>
+    } else if (msg.type === 'assistant') {
+      items.push(
+        <div key={i} className="msg-group">
+          <span className="msg-role-label msg-role-label--assistant">Claude</span>
+          <div className="msg-assistant">
+            {msg.timestamp && (
+              <span className="msg-ts">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+            )}
+            {msg.thinking && (
+              <details className="msg-thinking">
+                <summary>Extended thinking</summary>
+                <pre className="msg-pre">{msg.thinking}</pre>
+              </details>
+            )}
+            <div className="msg-text">{msg.content}</div>
+          </div>
         </div>
       )
-    }
-    if (msg.type === 'tool_use') {
-      return (
+    } else if (msg.type === 'tool_use') {
+      items.push(
         <details key={i} className="msg-tool">
           <summary className="msg-tool-summary">
             <span className="tool-label">Tool</span>
@@ -38,9 +67,8 @@ function MessageThread({ messages }) {
           <pre className="msg-pre">{msg.content}</pre>
         </details>
       )
-    }
-    if (msg.type === 'tool_result') {
-      return (
+    } else if (msg.type === 'tool_result') {
+      items.push(
         <details key={i} className="msg-tool msg-tool-result">
           <summary className="msg-tool-summary">
             <span className="tool-label">Result</span>
@@ -49,23 +77,27 @@ function MessageThread({ messages }) {
           <pre className="msg-pre">{msg.content}</pre>
         </details>
       )
-    }
-    if (msg.type === 'summary') {
-      return (
+    } else if (msg.type === 'summary') {
+      items.push(
         <div key={i} className="msg-summary">
           {msg.content}
         </div>
       )
     }
-    return null
   })
+
+  return <>{items}</>
 }
 
 export default function SessionDetail({ sessionId, onClose }) {
-  // State is initialized fresh on each mount — parent passes key={sessionId} to remount on change
   const [fetchState, setFetchState] = useState({ loading: true, error: null, detail: null, offset: 0 })
   const { loading, error, detail, offset } = fetchState
   const limit = 200
+
+  const [exportScope, setExportScope] = useState('global')
+  const [exportState, setExportState] = useState('idle')
+  const [exportedName, setExportedName] = useState('')
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     if (!sessionId) return
@@ -93,22 +125,101 @@ export default function SessionDetail({ sessionId, onClose }) {
       .catch(() => {})
   }
 
+  const handleExportSkill = useCallback(async () => {
+    setExportState('loading')
+    try {
+      const res = await fetch(
+        `/api/sessions/${sessionId}/export-skill?scope=${exportScope}`,
+        { method: 'POST' }
+      )
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setExportedName(data.skill_name)
+      setExportState('done')
+    } catch {
+      setExportState('error')
+    }
+  }, [sessionId, exportScope])
+
+  const handleDownloadTranscript = useCallback(async () => {
+    setDownloading(true)
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/transcript`)
+      if (!res.ok) throw new Error('Failed to fetch transcript')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `claude-session-${sessionId.slice(0, 8)}.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {}
+    setDownloading(false)
+  }, [sessionId])
+
   const hasMore = detail && (offset + limit) < detail.total_messages
+  const shortId = sessionId.slice(0, 8)
+  const totalCount = detail?.total_messages ?? 0
 
   return (
     <div className="detail-overlay" onClick={onClose}>
       <div className="detail-panel" onClick={e => e.stopPropagation()}>
+
+        {/* ── Header ── */}
         <div className="detail-header">
-          <h2 className="detail-title">Session Detail</h2>
-          <button className="detail-close" onClick={onClose} aria-label="Close">✕</button>
+          <div className="detail-header-left">
+            <h2 className="detail-title">Session Detail</h2>
+            <span className="detail-subtitle">
+              {shortId}… {totalCount > 0 ? `· ${totalCount} messages` : ''}
+            </span>
+          </div>
+          <div className="detail-header-actions">
+            <button
+              className={`detail-action-btn ${downloading ? 'detail-action-btn--loading' : ''}`}
+              onClick={handleDownloadTranscript}
+              disabled={downloading || loading}
+              title="Download transcript as Markdown"
+            >
+              {downloading ? '…' : '↓ Transcript'}
+            </button>
+            <button className="detail-close" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </div>
+
+        {/* ── Export as skill (moved from card) ── */}
+        <div className="detail-skill-row" onClick={e => e.stopPropagation()}>
+          <span className="detail-skill-label">Export as skill</span>
+          <select
+            className="detail-skill-scope"
+            value={exportScope}
+            onChange={e => setExportScope(e.target.value)}
+            disabled={exportState === 'loading'}
+          >
+            <option value="global">Global</option>
+            <option value="local">Local</option>
+          </select>
+          <button
+            className={`detail-skill-btn detail-skill-btn--${exportState}`}
+            disabled={exportState === 'loading' || exportState === 'done'}
+            onClick={handleExportSkill}
+          >
+            {exportState === 'idle' && 'Export'}
+            {exportState === 'loading' && 'Exporting…'}
+            {exportState === 'done' && `✓ /${exportedName}`}
+            {exportState === 'error' && 'Retry'}
+          </button>
+        </div>
+
+        {/* ── Body ── */}
         <div className="detail-body">
-          {loading && <div className="detail-loading">Loading…</div>}
+          {loading && <div className="detail-loading">Loading messages</div>}
           {error && <div className="detail-error">{error}</div>}
           {detail && <MessageThread messages={detail.messages} />}
           {hasMore && (
             <button className="detail-load-more" onClick={loadMore}>
-              Load more ({detail.total_messages - offset - limit} remaining)
+              Load more · {detail.total_messages - offset - limit} remaining
             </button>
           )}
         </div>

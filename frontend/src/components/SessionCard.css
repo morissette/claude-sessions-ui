@@ -162,7 +162,6 @@
 .card-title {
   flex: 1;
   min-width: 0;
-}
   font-size: 13px;
   font-weight: 400;
   color: var(--text);
@@ -412,7 +411,8 @@
 
 .session-id-row {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .session-id {
@@ -421,53 +421,14 @@
   letter-spacing: 0.04em;
 }
 
-/* ── Export as skill ────────────────────────────────────── */
-
-.card-export {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
+.card-open-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.15s;
+  letter-spacing: 0.02em;
 }
 
-.export-scope {
-  font-size: 0.75rem;
-  padding: 0.2rem 0.4rem;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.export-btn {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.6rem;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  cursor: pointer;
-  background: var(--surface-2);
-  color: var(--text);
-  transition: background 0.15s;
-}
-
-.export-btn:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-
-.export-btn-done {
-  background: var(--accent-dim);
-  color: var(--accent);
-  border-color: rgba(124, 106, 247, 0.3);
-}
-
-.export-btn-error {
-  border-color: rgba(240, 168, 48, 0.4);
-  color: var(--cost);
-}
-
-.export-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.session-card:hover .card-open-hint {
+  opacity: 1;
 }
