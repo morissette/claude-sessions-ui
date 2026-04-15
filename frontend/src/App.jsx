@@ -3,7 +3,17 @@ import SessionCard from './components/SessionCard'
 import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
+import { usePersistedState } from './hooks/usePersistedState.js'
 import './App.css'
+
+const PREFS_DEFAULTS = {
+  version:         1,
+  filter:          'all',
+  sort:            'activity',
+  timeRange:       '1d',
+  selectedProject: null,
+  viewMode:        'sessions',
+}
 
 const TIME_RANGES = [
   { id: '1h', label: '1h' },
@@ -17,9 +27,21 @@ const TIME_RANGES = [
 
 export default function App() {
   const [data, setData] = useState({ sessions: [], stats: {}, savings: {}, truncation: {} })
-  const [filter, setFilter] = useState('all')
-  const [sort, setSort] = useState('activity') // activity | cost | turns
-  const [timeRange, setTimeRange] = useState('1d')
+  const [prefs, setPrefs] = usePersistedState('claude-sessions-ui-prefs', PREFS_DEFAULTS)
+
+  // Version check — reset if schema changed
+  useEffect(() => {
+    if (prefs.version !== PREFS_DEFAULTS.version) {
+      setPrefs(PREFS_DEFAULTS)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { filter, sort, timeRange } = prefs
+
+  const setFilter    = (v) => setPrefs(p => ({...p, filter:    v}))
+  const setSort      = (v) => setPrefs(p => ({...p, sort:      v}))
+  const setTimeRange = (v) => setPrefs(p => ({...p, timeRange: v}))
+
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [ollama, setOllama] = useState({ available: false, model_ready: false, model: '' })
