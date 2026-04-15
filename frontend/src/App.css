@@ -94,6 +94,8 @@
   50% { opacity: 0.5; transform: scale(0.7); }
 }
 
+.trends { margin: 0 0 1rem 0; }
+
 /* ── Toolbar ─────────────────────────────────────────────── */
 
 .toolbar {

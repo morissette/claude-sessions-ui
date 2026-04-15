@@ -6,6 +6,7 @@ import SessionDetail from './components/SessionDetail'
 import SearchResults from './components/SearchResults'
 import MemoryExplorer from './components/MemoryExplorer'
 import { usePersistedState } from './hooks/usePersistedState.js'
+import TrendsChart from './components/TrendsChart'
 import { ProjectList } from './components/ProjectCard'
 import './App.css'
 
@@ -58,6 +59,7 @@ export default function App() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd]     = useState('')
   const [customError, setCustomError] = useState('')
+  const [trendsExpanded, setTrendsExpanded] = useState(false)
   const [viewMode, setViewMode] = useState('sessions')
   const [selectedProject, setSelectedProject] = useState(null)
   const [projectData, setProjectData] = useState([])
@@ -221,6 +223,13 @@ export default function App() {
       </header>
 
       <StatsBar stats={stats} timeRange={timeRange} sessions={sorted} />
+      <section className="trends">
+        <button className="trends__toggle" onClick={() => setTrendsExpanded(e => !e)}>
+          Cost Trends
+          <span className={`trends__chevron ${trendsExpanded ? 'open' : ''}`}>▾</span>
+        </button>
+        {trendsExpanded && <TrendsChart timeRange={timeRange} />}
+      </section>
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">

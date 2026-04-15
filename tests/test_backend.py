@@ -952,6 +952,39 @@ def test_analytics_invalid_session_id():
     assert resp.status_code in (400, 404, 422)
 
 
+# ─── Config API ───────────────────────────────────────────────────────────────
+
+
+def test_read_config_missing_file(tmp_path, monkeypatch):
+    import backend
+    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "nonexistent.json")
+    monkeypatch.setattr(backend, '_config_cache', None)
+    cfg = backend._read_config_from_disk()
+    assert cfg == {"daily_budget_usd": None, "weekly_budget_usd": None}
+
+
+def test_put_config_ignores_unknown_keys(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "config.json")
+    monkeypatch.setattr(backend, '_config_cache', None)
+    with TestClient(backend.app) as client:
+        resp = client.put("/api/config", json={"daily_budget_usd": 5.0, "unknown_key": "ignored"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["daily_budget_usd"] == 5.0
+        assert "unknown_key" not in data
+
+
+def test_get_trends_returns_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, 'DB_PATH', tmp_path / "test.db")
+    monkeypatch.setattr(backend, '_db_conn', None)
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/trends?range=4w")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "days" in body
+        assert isinstance(body["days"], list)
+
+
 # ─── Search endpoint ──────────────────────────────────────────────────────────
 
 
