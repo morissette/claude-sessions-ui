@@ -98,6 +98,7 @@ export default function SessionDetail({ sessionId, onClose }) {
   const [activeTab, setActiveTab] = useState('transcript')
   const [analyticsData, setAnalyticsData] = useState(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [analyticsError, setAnalyticsError] = useState(null)
 
   const [exportScope, setExportScope] = useState('global')
   const [exportState, setExportState] = useState('idle')
@@ -110,6 +111,14 @@ export default function SessionDetail({ sessionId, onClose }) {
       .then(r => r.json())
       .then(d => setFetchState(prev => ({ ...prev, loading: false, detail: d })))
       .catch(e => setFetchState(prev => ({ ...prev, loading: false, error: e.message })))
+  }, [sessionId])
+
+  // Reset analytics state when the session changes so stale data from the
+  // previous session is not shown while the new session loads.
+  useEffect(() => {
+    setActiveTab('transcript')
+    setAnalyticsData(null)
+    setAnalyticsError(null)
   }, [sessionId])
 
   useEffect(() => {
@@ -131,12 +140,19 @@ export default function SessionDetail({ sessionId, onClose }) {
   }
 
   async function fetchAnalytics() {
-    if (analyticsData) return  // already loaded
+    if (analyticsData) return  // already loaded for this session
     setAnalyticsLoading(true)
+    setAnalyticsError(null)
     try {
       const res = await fetch(`/api/sessions/${sessionId}/analytics`)
-      if (res.ok) setAnalyticsData(await res.json())
-    } catch { /* degrade gracefully */ }
+      if (res.ok) {
+        setAnalyticsData(await res.json())
+      } else {
+        setAnalyticsError(`Failed to load analytics (${res.status})`)
+      }
+    } catch {
+      setAnalyticsError('Failed to load analytics')
+    }
     setAnalyticsLoading(false)
   }
 
@@ -254,7 +270,10 @@ export default function SessionDetail({ sessionId, onClose }) {
             </>
           )}
           {activeTab === 'analytics' && (
-            <SessionAnalytics data={analyticsData} loading={analyticsLoading} />
+            <>
+              {analyticsError && <div className="detail-error">{analyticsError}</div>}
+              <SessionAnalytics data={analyticsData} loading={analyticsLoading} />
+            </>
           )}
         </div>
       </div>

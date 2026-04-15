@@ -1,6 +1,8 @@
 import './SessionAnalytics.css'
 
-function TurnTokenChart({ turns }) {
+// truncated is passed from the top-level analytics response — the backend caps
+// turns at 200, so turns.length > 200 can never fire; use the explicit flag.
+function TurnTokenChart({ turns, truncated }) {
   if (!turns || turns.length === 0) return null
   const W = 600, H = 160, LABEL_H = 20, CHART_H = H - LABEL_H
   const max = Math.max(...turns.map(t => t.input_tokens + t.output_tokens + t.cache_create_tokens + t.cache_read_tokens), 1)
@@ -27,7 +29,7 @@ function TurnTokenChart({ turns }) {
   return (
     <div>
       <div className="analytics__chart-title">Turn-by-Turn Tokens</div>
-      {turns.length > 200 && <div className="analytics__notice">Showing first 200 turns</div>}
+      {truncated && <div className="analytics__notice">Showing first 200 turns</div>}
       <svg viewBox={`0 0 ${W} ${H}`} className="analytics__svg" preserveAspectRatio="xMidYMid meet">
         {bars}
         <text x={0} y={H - 4} fontSize="10" fill="var(--text-muted)">Turn 1</text>
@@ -93,7 +95,7 @@ export default function SessionAnalytics({ data, loading }) {
   if (loading) return <div className="analytics__loading">Loading analytics&#8230;</div>
   if (!data) return null
 
-  const { turns, cumulative_cost, tool_usage, summary } = data
+  const { turns, truncated, cumulative_cost, tool_usage, summary } = data
 
   return (
     <div className="session-analytics">
@@ -109,7 +111,7 @@ export default function SessionAnalytics({ data, loading }) {
           </div>
         )}
         <div className="analytics__stat">
-          <span className="analytics__stat-value">{(summary.thinking_ratio * 100).toFixed(0)}%</span>
+          <span className="analytics__stat-value">{(summary.thinking_word_ratio * 100).toFixed(0)}%</span>
           <span className="analytics__stat-label">Thinking</span>
         </div>
         <div className="analytics__stat">
@@ -117,7 +119,7 @@ export default function SessionAnalytics({ data, loading }) {
           <span className="analytics__stat-label">Peak turn cost</span>
         </div>
       </div>
-      <TurnTokenChart turns={turns} />
+      <TurnTokenChart turns={turns} truncated={truncated} />
       <CumulativeCostChart cumulative={cumulative_cost} />
       <ToolUsageChart toolUsage={tool_usage} />
     </div>

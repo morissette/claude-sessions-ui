@@ -1340,7 +1340,7 @@ async def parse_session_analytics(session_id: str) -> dict | None:
                 "output_tokens": t["output"],
                 "cache_create_tokens": t["cache_create"],
                 "cache_read_tokens": t["cache_read"],
-                "thinking_tokens": t["thinking"],
+                "thinking_words": t["thinking"],
                 "cost_usd": cost,
                 "duration_s": dur,
                 "ts": t["start_ts"],
@@ -1422,8 +1422,9 @@ async def parse_session_analytics(session_id: str) -> dict | None:
         durations = [t["duration_s"] for t in turns if t["duration_s"] is not None]
         avg_dur = sum(durations) / len(durations) if durations else None
         total_output = sum(t["output_tokens"] for t in turns)
-        total_thinking = sum(t["thinking_tokens"] for t in turns)
-        thinking_ratio = total_thinking / total_output if total_output > 0 else 0.0
+        # thinking_words is a word count (len(text.split()), not an API token count)
+        total_thinking_words = sum(t["thinking_words"] for t in turns)
+        thinking_word_ratio = total_thinking_words / total_output if total_output > 0 else 0.0
         peak = max(turns, key=lambda t: t["cost_usd"])
 
         return {
@@ -1435,7 +1436,7 @@ async def parse_session_analytics(session_id: str) -> dict | None:
             "summary": {
                 "total_turns": len(turns),
                 "avg_turn_duration_s": avg_dur,
-                "thinking_ratio": thinking_ratio,
+                "thinking_word_ratio": thinking_word_ratio,
                 "peak_turn": peak["turn"],
                 "peak_turn_cost_usd": peak["cost_usd"],
             },
