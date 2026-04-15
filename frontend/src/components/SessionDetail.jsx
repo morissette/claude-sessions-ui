@@ -89,7 +89,7 @@ function MessageThread({ messages }) {
   return <>{items}</>
 }
 
-export default function SessionDetail({ sessionId, onClose, ollama }) {
+export default function SessionDetail({ sessionId, onClose }) {
   const [fetchState, setFetchState] = useState({ loading: true, error: null, detail: null, offset: 0 })
   const { loading, error, detail, offset } = fetchState
   const limit = 200

@@ -26,6 +26,7 @@ export default [
         clearInterval: "readonly",
         WebSocket: "readonly",
         fetch: "readonly",
+        URL: "readonly",
       },
     },
     settings: {
