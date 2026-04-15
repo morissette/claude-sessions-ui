@@ -945,13 +945,23 @@ def test_read_config_missing_file(tmp_path, monkeypatch):
     assert cfg == {"daily_budget_usd": None, "weekly_budget_usd": None}
 
 
-def test_put_config_ignores_unknown_keys():
-    from fastapi.testclient import TestClient
-    client = TestClient(backend.app)
-    # First ensure config exists
-    client.put("/api/config", json={"daily_budget_usd": 5.0})
-    # Now try to set an unknown key
-    resp = client.put("/api/config", json={"evil_key": "x", "daily_budget_usd": 10.0})
-    data = resp.json()
-    assert "evil_key" not in data
-    assert data["daily_budget_usd"] == 10.0
+def test_put_config_ignores_unknown_keys(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "config.json")
+    monkeypatch.setattr(backend, '_config_cache', None)
+    with TestClient(backend.app) as client:
+        resp = client.put("/api/config", json={"daily_budget_usd": 5.0, "unknown_key": "ignored"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["daily_budget_usd"] == 5.0
+        assert "unknown_key" not in data
+
+
+def test_get_trends_returns_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, 'DB_PATH', tmp_path / "test.db")
+    monkeypatch.setattr(backend, '_db_conn', None)
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/trends?range=4w")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "days" in body
+        assert isinstance(body["days"], list)

@@ -13,9 +13,9 @@ function BudgetInput({ value, onSave }) {
       <button onClick={() => setEditing(false)}>Cancel</button>
     </span>
   ) : (
-    <span className="budget-input budget-input--display" onClick={() => { setDraft(value ?? ''); setEditing(true) }}>
+    <button type="button" className="budget-input budget-input--display" onClick={() => { setDraft(value ?? ''); setEditing(true) }}>
       Daily budget: {value != null ? `$${Number(value).toFixed(2)}` : 'not set'} ✎
-    </span>
+    </button>
   )
 }
 
@@ -25,7 +25,12 @@ export default function TrendsChart({ timeRange }) {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/trends?range=4w')
+    // Map the app's time range to the nearest available trend range
+    const trendRange = {
+      '1h': '1d', '1d': '1d', '3d': '1w', '1w': '2w', '2w': '4w',
+      '1m': '3m', '6m': '3m', 'all': '3m',
+    }[timeRange] ?? '4w'
+    fetch(`/api/trends?range=${trendRange}`)
       .then(r => r.json())
       .then(d => { if (!cancelled) setFetchState({ data: d, loading: false }) })
       .catch(() => { if (!cancelled) setFetchState(prev => ({ ...prev, loading: false })) })
@@ -83,8 +88,8 @@ export default function TrendsChart({ timeRange }) {
     return <g key={day.date}>{rects}</g>
   })
 
-  // Budget line
-  const budgetY = budget ? CHART_H - (budget / maxCost) * CHART_H : null
+  // Budget line — use != null so budget=0 still renders a line at the bottom
+  const budgetY = budget != null ? CHART_H - (budget / maxCost) * CHART_H : null
 
   // X-axis labels every 7 days
   const labels = days

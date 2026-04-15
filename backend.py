@@ -118,6 +118,7 @@ def read_config() -> dict:
 
 
 def write_config(data: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(data, indent=2))
     global _config_cache
     _config_cache = None  # invalidate cache
@@ -291,32 +292,39 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             """,
             rows,
         )
-        # Update daily_costs for each session's date
+        # Recompute daily_costs for each affected date from the sessions table.
+        # Using INSERT OR REPLACE with aggregated totals ensures idempotency —
+        # repeated upserts of the same sessions never inflate the daily totals.
+        affected_dates: set[str] = set()
         for s in sessions:
             started_at = s.get("started_at")
-            model = s.get("model")
-            cost = s["stats"].get("estimated_cost_usd")
             if started_at:
-                try:
-                    date_str = _normalize_ts(started_at)[:10]  # "YYYY-MM-DD"
-                    row = _db_conn.execute(
-                        "SELECT total_cost_usd, model_breakdown, session_count "
-                        "FROM daily_costs WHERE date = ?",
-                        (date_str,),
-                    ).fetchone()
-                    if row:
-                        breakdown = json.loads(row[1] or "{}")
-                        breakdown[model or "unknown"] = (
-                            breakdown.get(model or "unknown", 0.0) + (cost or 0.0)
-                        )
-                        _db_conn.execute(
-                            "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
-                            (date_str, row[0] + (cost or 0.0), json.dumps(breakdown),
-                             row[2] + 1, datetime.now(UTC).isoformat()),
-                        )
-                    # else: will be populated by next backfill or on next startup
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception):
+                    affected_dates.add(_normalize_ts(started_at)[:10])  # "YYYY-MM-DD"
+        now_iso = datetime.now(UTC).isoformat()
+        for date_str in affected_dates:
+            try:
+                model_rows = _db_conn.execute(
+                    "SELECT model, SUM(estimated_cost_usd), COUNT(*) "
+                    "FROM sessions WHERE DATE(started_at) = ? GROUP BY model",
+                    (date_str,),
+                ).fetchall()
+                if not model_rows:
+                    continue
+                breakdown: dict[str, float] = {}
+                total_cost = 0.0
+                total_count = 0
+                for model_name, cost_sum, count in model_rows:
+                    key = model_name or "unknown"
+                    breakdown[key] = round(cost_sum or 0.0, 6)
+                    total_cost += cost_sum or 0.0
+                    total_count += count or 0
+                _db_conn.execute(
+                    "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
+                    (date_str, total_cost, json.dumps(breakdown), total_count, now_iso),
+                )
+            except Exception:
+                pass
         _db_conn.commit()
 
 
@@ -483,7 +491,7 @@ async def backfill_daily_costs() -> None:
                 )
             conn.commit()
 
-    await asyncio.get_event_loop().run_in_executor(None, _run)
+    await asyncio.get_running_loop().run_in_executor(None, _run)
 
 
 # ─── Process discovery ────────────────────────────────────────────────────────
@@ -1254,7 +1262,7 @@ async def get_trends(range: str = "4w"):
                 (cutoff,),
             ).fetchall()
 
-    rows = await asyncio.get_event_loop().run_in_executor(None, _query)
+    rows = await asyncio.get_running_loop().run_in_executor(None, _query)
     config = read_config()
     days_data = [
         {
