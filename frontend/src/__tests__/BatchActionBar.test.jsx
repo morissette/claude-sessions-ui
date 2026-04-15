@@ -6,12 +6,15 @@ import BatchActionBar from '../components/BatchActionBar'
 const noop = () => {}
 
 describe('BatchActionBar', () => {
-  it('renders nothing when count is 0', () => {
-    const { container } = render(
+  it('renders with disabled action buttons when count is 0', () => {
+    render(
       <BatchActionBar count={0} onSelectAll={noop} onDeselectAll={noop}
         onSummarize={noop} onExport={noop} onCostReport={noop} ollamaAvailable={true} />
     )
-    expect(container.firstChild).toBeNull()
+    expect(screen.getByText('0 selected')).toBeInTheDocument()
+    expect(screen.getByText('Summarize')).toBeDisabled()
+    expect(screen.getByText('Export ZIP')).toBeDisabled()
+    expect(screen.getByText('Cost CSV')).toBeDisabled()
   })
 
   it('renders when count > 0', () => {

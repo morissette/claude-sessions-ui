@@ -2049,10 +2049,14 @@ async def batch_summarize(body: dict):
                 if jf is None:
                     yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': 'session not found'})}\n\n"
                     continue
-                await trigger_summary(sid, jf)
-                yield f"data: {json.dumps({'id': sid, 'status': 'done'})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': str(e)})}\n\n"
+                result = await trigger_summary(sid, jf)
+                if result:
+                    yield f"data: {json.dumps({'id': sid, 'status': 'done'})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': 'summary unavailable'})}\n\n"
+            except Exception:
+                logger.exception("Batch summarize failed for session %s", sid)
+                yield f"data: {json.dumps({'id': sid, 'status': 'error', 'error': 'summarization failed'})}\n\n"
         yield 'data: {"done": true}\n\n'
 
     return StreamingResponse(
@@ -2081,7 +2085,7 @@ async def batch_export(body: dict):
                 transcript = _get_transcript_text(sid)
                 if transcript:
                     safe_name = _re.sub(r"[^a-zA-Z0-9_-]", "_", sid)
-                    zf.writestr(f"{safe_name}.txt", transcript)
+                    zf.writestr(f"{safe_name}.md", transcript)
         return buf.getvalue()
 
     zip_bytes = await asyncio.get_running_loop().run_in_executor(None, build_zip)
@@ -2104,10 +2108,13 @@ async def batch_cost_report(body: dict):
         if not _re.match(r'^[a-zA-Z0-9_-]+$', sid):
             raise HTTPException(status_code=400, detail=f"Invalid session ID: {sid}")
 
+    # Snapshot cache before entering thread pool to avoid concurrent modification
+    cache_snapshot = dict(_session_cache)
+
     def build_csv() -> str:
         sessions = []
         for sid in session_ids:
-            for (_path_key, cache_entry) in _session_cache.items():
+            for cache_entry in cache_snapshot.values():
                 s = cache_entry[1]  # (mtime, session_data)
                 if isinstance(s, dict) and s.get("session_id") == sid:
                     sessions.append(s)

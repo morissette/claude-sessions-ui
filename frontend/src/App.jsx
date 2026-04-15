@@ -195,28 +195,36 @@ export default function App() {
   async function handleBatchSummarize() {
     const ids = [...selectedSessions]
     setBatchProgress(Object.fromEntries(ids.map(id => [id, 'pending'])))
-    const response = await fetch('/api/batch/summarize', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({session_ids: ids}),
-    })
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const {done, value} = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, {stream: true})
-      const parts = buf.split('\n\n')
-      buf = parts.pop()
-      for (const part of parts) {
-        if (part.startsWith('data: ')) {
-          try {
-            const event = JSON.parse(part.slice(6))
-            if (event.id) setBatchProgress(prev => ({...prev, [event.id]: event.status}))
-          } catch {}
+    try {
+      const response = await fetch('/api/batch/summarize', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_ids: ids}),
+      })
+      if (!response.ok || !response.body) {
+        setBatchProgress(Object.fromEntries(ids.map(id => [id, 'error'])))
+        return
+      }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const {done, value} = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, {stream: true})
+        const parts = buf.split('\n\n')
+        buf = parts.pop()
+        for (const part of parts) {
+          if (part.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(part.slice(6))
+              if (event.id) setBatchProgress(prev => ({...prev, [event.id]: event.status}))
+            } catch {}
+          }
         }
       }
+    } catch {
+      setBatchProgress(Object.fromEntries(ids.map(id => [id, 'error'])))
     }
   }
 
@@ -225,10 +233,14 @@ export default function App() {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({session_ids: [...selectedSessions]}),
     })
+    if (!res.ok) return
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'sessions-export.zip'; a.click()
+    a.href = url; a.download = 'sessions-export.zip'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
 
@@ -237,10 +249,14 @@ export default function App() {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({session_ids: [...selectedSessions]}),
     })
+    if (!res.ok) return
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'cost-report.csv'; a.click()
+    a.href = url; a.download = 'cost-report.csv'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
 
