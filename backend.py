@@ -48,6 +48,7 @@ subagents_total = Gauge("claude_subagents_total", "Total subagents spawned acros
 async def lifespan(_app: FastAPI):
     init_db()
     asyncio.create_task(_startup_backfill())
+    asyncio.create_task(backfill_daily_costs())
     yield
     # Shutdown: acquire the lock so we don't race with in-flight upsert threads,
     # then close the connection to release file locks/descriptors.
@@ -92,6 +93,36 @@ TRUNCATION_SAVINGS_FILE = Path.home() / ".claude" / "truncation_savings.jsonl"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 SUMMARY_MODEL = "llama3.2:3b"
 
+CONFIG_PATH = Path.home() / ".claude" / "claude-sessions-ui-config.json"
+_config_cache: tuple[float, dict] | None = None
+
+
+def _read_config_from_disk() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"daily_budget_usd": None, "weekly_budget_usd": None}
+
+
+def read_config() -> dict:
+    global _config_cache
+    now = time.monotonic()
+    if _config_cache and now - _config_cache[0] < 5:
+        return _config_cache[1]
+    data = _read_config_from_disk()
+    _config_cache = (now, data)
+    return data
+
+
+def write_config(data: dict) -> None:
+    CONFIG_PATH.write_text(json.dumps(data, indent=2))
+    global _config_cache
+    _config_cache = None  # invalidate cache
+
+
 # Cost we'd pay for one summary via Claude Haiku (~500 input + ~15 output tokens)
 SUMMARY_COST_ESTIMATE_USD = round(500 * 0.8 / 1_000_000 + 15 * 4.0 / 1_000_000, 6)  # ~$0.00046
 
@@ -122,6 +153,13 @@ _db_lock = threading.Lock()
 
 
 # ─── SQLite storage ──────────────────────────────────────────────────────────
+
+
+@contextlib.contextmanager
+def get_db():
+    """Yield the shared SQLite connection under the write lock."""
+    with _db_lock:
+        yield _db_conn
 
 
 def _normalize_ts(ts: str) -> str:
@@ -175,6 +213,15 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active);
         CREATE INDEX IF NOT EXISTS idx_sessions_started_at  ON sessions(started_at);
+    """)
+    _db_conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_costs (
+            date            TEXT PRIMARY KEY,
+            total_cost_usd  REAL NOT NULL DEFAULT 0.0,
+            model_breakdown TEXT NOT NULL DEFAULT '{}',
+            session_count   INT  NOT NULL DEFAULT 0,
+            last_synced_at  TEXT
+        )
     """)
     # Migrate: add last_activity column if it doesn't exist (SQLite has no ADD COLUMN IF NOT EXISTS)
     with contextlib.suppress(sqlite3.OperationalError):
@@ -244,6 +291,32 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             """,
             rows,
         )
+        # Update daily_costs for each session's date
+        for s in sessions:
+            started_at = s.get("started_at")
+            model = s.get("model")
+            cost = s["stats"].get("estimated_cost_usd")
+            if started_at:
+                try:
+                    date_str = _normalize_ts(started_at)[:10]  # "YYYY-MM-DD"
+                    row = _db_conn.execute(
+                        "SELECT total_cost_usd, model_breakdown, session_count "
+                        "FROM daily_costs WHERE date = ?",
+                        (date_str,),
+                    ).fetchone()
+                    if row:
+                        breakdown = json.loads(row[1] or "{}")
+                        breakdown[model or "unknown"] = (
+                            breakdown.get(model or "unknown", 0.0) + (cost or 0.0)
+                        )
+                        _db_conn.execute(
+                            "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
+                            (date_str, row[0] + (cost or 0.0), json.dumps(breakdown),
+                             row[2] + 1, datetime.now(UTC).isoformat()),
+                        )
+                    # else: will be populated by next backfill or on next startup
+                except Exception:
+                    pass
         _db_conn.commit()
 
 
@@ -382,6 +455,35 @@ async def _upsert_in_background(sessions: list[dict]) -> None:
         await asyncio.get_running_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
     except Exception:
         logger.exception("Background SQLite upsert failed")
+
+
+async def backfill_daily_costs() -> None:
+    def _run():
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT DATE(started_at) AS date, model, SUM(estimated_cost_usd), COUNT(*) "
+                "FROM sessions WHERE started_at IS NOT NULL GROUP BY DATE(started_at), model"
+            ).fetchall()
+            by_date: dict[str, dict] = {}
+            for date_str, model, cost, count in rows:
+                if not date_str:
+                    continue
+                if date_str not in by_date:
+                    by_date[date_str] = {"total": 0.0, "models": {}, "count": 0}
+                by_date[date_str]["total"] += cost or 0.0
+                by_date[date_str]["models"][model or "unknown"] = (
+                    by_date[date_str]["models"].get(model or "unknown", 0.0) + (cost or 0.0)
+                )
+                by_date[date_str]["count"] += count or 0
+            for date_str, data in by_date.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
+                    (date_str, data["total"], json.dumps(data["models"]),
+                     data["count"], datetime.now(UTC).isoformat()),
+                )
+            conn.commit()
+
+    await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
 # ─── Process discovery ────────────────────────────────────────────────────────
@@ -1130,6 +1232,60 @@ async def list_sessions(time_range: str = "1d"):
         "truncation": compute_truncation_savings(),
         "time_range": time_range,
     }
+
+
+def parse_trend_range(r: str) -> int:
+    mapping = {"2w": 14, "4w": 28, "3m": 90}
+    return mapping.get(r, 28)
+
+
+@app.get("/api/trends")
+async def get_trends(range: str = "4w"):
+    days = parse_trend_range(range)
+    from datetime import date as date_type
+
+    cutoff = (date_type.today() - timedelta(days=days)).isoformat()
+
+    def _query():
+        with get_db() as conn:
+            return conn.execute(
+                "SELECT date, total_cost_usd, model_breakdown, session_count "
+                "FROM daily_costs WHERE date >= ? ORDER BY date",
+                (cutoff,),
+            ).fetchall()
+
+    rows = await asyncio.get_event_loop().run_in_executor(None, _query)
+    config = read_config()
+    days_data = [
+        {
+            "date": r[0],
+            "total_cost_usd": r[1],
+            "by_model": json.loads(r[2] or "{}"),
+            "session_count": r[3],
+        }
+        for r in rows
+    ]
+    return {
+        "days": days_data,
+        "daily_budget_usd": config.get("daily_budget_usd"),
+        "weekly_budget_usd": config.get("weekly_budget_usd"),
+    }
+
+
+@app.get("/api/config")
+async def get_config():
+    return read_config()
+
+
+@app.put("/api/config")
+async def put_config(body: dict):
+    allowed_keys = {"daily_budget_usd", "weekly_budget_usd"}
+    config = read_config()
+    for k, v in body.items():
+        if k in allowed_keys:
+            config[k] = float(v) if v is not None else None
+    write_config(config)
+    return config
 
 
 @app.get("/api/db/status")

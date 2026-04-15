@@ -932,3 +932,26 @@ class TestExportSkill:
         with TestClient(backend.app) as client:
             response = client.post("/api/sessions/doesnotexist/export-skill")
         assert response.status_code == 404
+
+
+# ─── Config API ───────────────────────────────────────────────────────────────
+
+
+def test_read_config_missing_file(tmp_path, monkeypatch):
+    import backend
+    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "nonexistent.json")
+    monkeypatch.setattr(backend, '_config_cache', None)
+    cfg = backend._read_config_from_disk()
+    assert cfg == {"daily_budget_usd": None, "weekly_budget_usd": None}
+
+
+def test_put_config_ignores_unknown_keys():
+    from fastapi.testclient import TestClient
+    client = TestClient(backend.app)
+    # First ensure config exists
+    client.put("/api/config", json={"daily_budget_usd": 5.0})
+    # Now try to set an unknown key
+    resp = client.put("/api/config", json={"evil_key": "x", "daily_budget_usd": 10.0})
+    data = resp.json()
+    assert "evil_key" not in data
+    assert data["daily_budget_usd"] == 10.0

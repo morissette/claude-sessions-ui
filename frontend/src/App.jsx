@@ -4,6 +4,7 @@ import StatsBar from './components/StatsBar'
 import SavingsBanner from './components/SavingsBanner'
 import SessionDetail from './components/SessionDetail'
 import { usePersistedState } from './hooks/usePersistedState.js'
+import TrendsChart from './components/TrendsChart'
 import './App.css'
 
 const PREFS_DEFAULTS = {
@@ -51,6 +52,7 @@ export default function App() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd]     = useState('')
   const [customError, setCustomError] = useState('')
+  const [trendsExpanded, setTrendsExpanded] = useState(false)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const intentionalCloseRef = useRef(false)
@@ -169,6 +171,13 @@ export default function App() {
       </header>
 
       <StatsBar stats={stats} timeRange={timeRange} />
+      <section className="trends">
+        <button className="trends__toggle" onClick={() => setTrendsExpanded(e => !e)}>
+          Cost Trends
+          <span className={`trends__chevron ${trendsExpanded ? 'open' : ''}`}>▾</span>
+        </button>
+        {trendsExpanded && <TrendsChart timeRange={timeRange} />}
+      </section>
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">
