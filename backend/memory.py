@@ -42,10 +42,7 @@ def validate_memory_path(rel_path: str) -> Path:
     else:
         allowed_base = (constants.CLAUDE_BASE_DIR / root).resolve()
 
-    allowed_base_str = str(allowed_base)
-    resolved_str = str(resolved)
-
-    if resolved_str != allowed_base_str and not resolved_str.startswith(allowed_base_str + "/"):
+    if resolved != allowed_base and not resolved.is_relative_to(allowed_base):
         raise HTTPException(status_code=403, detail="Path traversal detected")
 
     return resolved

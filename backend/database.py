@@ -136,6 +136,13 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
     if not sessions or _db_conn is None:
         return
     now_iso = datetime.now(UTC).isoformat()
+    # Pre-fetch FTS rows outside the lock — disk I/O should not hold _db_lock.
+    fts_data: list[tuple[str, list]] = []
+    for s in sessions:
+        jsonl_path = find_session_file(s["session_id"])
+        if jsonl_path is not None:
+            fts_data.append((s["session_id"], _extract_messages_from_jsonl(jsonl_path)))
+
     rows = [
         (
             s["session_id"],
@@ -227,12 +234,14 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             except Exception:
                 pass
         _db_conn.commit()
-        # Keep the FTS index in sync so new/updated sessions are searchable
-        # immediately without waiting for the next full backfill.
-        for s in sessions:
-            jsonl_path = find_session_file(s["session_id"])
-            if jsonl_path is not None:
-                _sync_fts(_db_conn, s["session_id"], jsonl_path)
+        # Keep the FTS index in sync — use pre-fetched rows (no I/O under the lock).
+        for session_id, fts_rows in fts_data:
+            _db_conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
+            if fts_rows:
+                _db_conn.executemany(
+                    "INSERT INTO session_messages (session_id, role, content, ts) VALUES (?, ?, ?, ?)",
+                    fts_rows,
+                )
         _db_conn.commit()
 
 

@@ -33,7 +33,7 @@ def parse_session_detail(path: Path, offset: int = 0, limit: int = 200) -> dict:
     raw_lines: list[dict] = []
 
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for raw_line in f:
                 raw_line = raw_line.strip()
                 if not raw_line:

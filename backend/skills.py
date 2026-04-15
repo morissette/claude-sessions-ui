@@ -48,27 +48,28 @@ def extract_session_skill_data(path: Path) -> dict:
     title = ""
 
     try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            t = entry.get("type", "")
-            if t == "assistant":
-                for block in entry.get("message", {}).get("content", []):
-                    if isinstance(block, dict):
-                        if block.get("type") == "tool_use":
-                            name = block.get("name", "")
-                            if name:
-                                tools_used.add(name)
-                        elif block.get("type") == "text":
-                            last_assistant_message = block.get("text", "")[:500]
-            elif t == "user":
-                content = entry.get("message", {}).get("content", "")
-                if isinstance(content, str) and not first_user_message:
-                    first_user_message = content[:500]
-            elif t == "summary":
-                title = entry.get("summary", "")
+        with path.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                t = entry.get("type", "")
+                if t == "assistant":
+                    for block in entry.get("message", {}).get("content", []):
+                        if isinstance(block, dict):
+                            if block.get("type") == "tool_use":
+                                name = block.get("name", "")
+                                if name:
+                                    tools_used.add(name)
+                            elif block.get("type") == "text":
+                                last_assistant_message = block.get("text", "")[:500]
+                elif t == "user":
+                    content = entry.get("message", {}).get("content", "")
+                    if isinstance(content, str) and not first_user_message:
+                        first_user_message = content[:500]
+                elif t == "summary":
+                    title = entry.get("summary", "")
     except OSError:
         pass
 

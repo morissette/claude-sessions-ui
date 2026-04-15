@@ -49,8 +49,12 @@ async def backfill_fts() -> None:
         _fts_backfill_running = False
 
 
-async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
-    """Search session_messages FTS5 table for messages matching query."""
+async def search_fts(query: str, cutoff: datetime | None, limit: int) -> list[dict]:
+    """Search session_messages FTS5 table for messages matching query.
+
+    cutoff: if provided, only return results with last_active >= cutoff.
+    Pass None for unbounded search (e.g. time_range="all").
+    """
 
     def _query_db() -> list:
         try:
@@ -61,21 +65,34 @@ async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
                 # avoiding an N+1 per-row lookup. bm25() is the correct FTS5
                 # ranking function; the bare `rank` column does not exist on
                 # FTS5 tables and raises OperationalError at runtime.
-                rows = database._db_conn.execute(
+                if cutoff is not None:
+                    sql = """
+                        SELECT sm.session_id, sm.role, sm.ts,
+                               snippet(session_messages, 2, '**', '**', '...', 16) AS snip,
+                               bm25(session_messages),
+                               s.project_name, s.title
+                        FROM session_messages sm
+                        JOIN sessions s ON sm.session_id = s.session_id
+                        WHERE session_messages MATCH ?
+                          AND s.last_active >= ?
+                        ORDER BY bm25(session_messages)
+                        LIMIT ?
                     """
-                    SELECT sm.session_id, sm.role, sm.ts,
-                           snippet(session_messages, 2, '**', '**', '...', 16) AS snip,
-                           bm25(session_messages),
-                           s.project_name, s.title
-                    FROM session_messages sm
-                    JOIN sessions s ON sm.session_id = s.session_id
-                    WHERE session_messages MATCH ?
-                      AND s.last_active >= ?
-                    ORDER BY bm25(session_messages)
-                    LIMIT ?
-                    """,
-                    (query, cutoff.isoformat(), limit),
-                ).fetchall()
+                    params = (query, cutoff.isoformat(), limit)
+                else:
+                    sql = """
+                        SELECT sm.session_id, sm.role, sm.ts,
+                               snippet(session_messages, 2, '**', '**', '...', 16) AS snip,
+                               bm25(session_messages),
+                               s.project_name, s.title
+                        FROM session_messages sm
+                        JOIN sessions s ON sm.session_id = s.session_id
+                        WHERE session_messages MATCH ?
+                        ORDER BY bm25(session_messages)
+                        LIMIT ?
+                    """
+                    params = (query, limit)
+                rows = database._db_conn.execute(sql, params).fetchall()
             return list(rows)
         except Exception:
             return []
