@@ -1,25 +1,6 @@
 import { useState, useEffect } from 'react'
+import { fmt, fmtCost, modelShort } from '../utils.js'
 import './StatsBar.css'
-
-function fmt(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
-  return String(n)
-}
-
-function fmtCost(n) {
-  if (n === 0) return '$0.00'
-  if (n < 0.01) return `$${n.toFixed(4)}`
-  return `$${n.toFixed(2)}`
-}
-
-function modelShort(model) {
-  if (!model || model === 'unknown') return null
-  if (model.includes('opus')) return { label: 'Opus', cls: 'model-opus' }
-  if (model.includes('sonnet')) return { label: 'Sonnet', cls: 'model-sonnet' }
-  if (model.includes('haiku')) return { label: 'Haiku', cls: 'model-haiku' }
-  return { label: model.replace('claude-', '').slice(0, 12), cls: 'model-default' }
-}
 
 const RANGE_COST_LABELS = {
   '1h': 'last 1h',
@@ -134,10 +115,13 @@ export default function StatsBar({ stats, timeRange, sessions }) {
           className="stats-bar__cost-btn"
           onClick={() => setShowModelBreakdown(v => !v)}
           aria-expanded={showModelBreakdown}
-          aria-haspopup="true"
+          aria-haspopup="dialog"
         >
           <span className="stat-value mono">{fmtCost(s.cost_today_usd ?? 0)}</span>
-          <span className="stat-label">{costLabel} <span className="stats-bar__cost-caret">▾</span></span>
+          <span className="stat-label">
+            {costLabel}
+            <span className="stats-bar__cost-caret" aria-hidden="true">▾</span>
+          </span>
           <span className="stat-sub">{fmtCost(s.total_cost_usd ?? 0)} total</span>
         </button>
         {showModelBreakdown && (
