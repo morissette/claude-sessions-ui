@@ -70,14 +70,15 @@ CLAUDE_DIR = Path.home() / ".claude" / "projects"
 DB_PATH = Path.home() / ".claude" / "claude-sessions-ui.db"
 LIVE_HOURS = 24  # Use JSONL for this window; SQLite for everything older
 
-TIME_RANGE_HOURS: dict[str, int] = {
-    "1h": 1,
-    "1d": 24,
-    "3d": 72,
-    "1w": 168,
-    "2w": 336,
-    "1m": 720,
-    "6m": 4320,
+TIME_RANGE_HOURS: dict[str, int | None] = {
+    "1h":  1,
+    "1d":  24,
+    "3d":  72,
+    "1w":  168,
+    "2w":  336,
+    "1m":  720,
+    "6m":  4320,
+    "all": None,   # None = no cutoff
 }
 
 SUMMARIES_DIR = Path.home() / ".claude" / "session_summaries"
@@ -246,11 +247,30 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
         _db_conn.commit()
 
 
-def get_sessions_from_db(hours: int) -> list[dict]:
+def get_sessions_from_db(
+    hours: int | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> list[dict]:
     """Return sessions from SQLite for time ranges beyond LIVE_HOURS."""
     if _db_conn is None:
         return []
-    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    conditions = []
+    params = []
+
+    if start:
+        conditions.append("last_active >= ?")
+        params.append(start)
+    if end:
+        conditions.append("last_active <= ?")
+        params.append(end)
+    if hours is not None and not start and not end:
+        cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+        conditions.append("last_active >= ?")
+        params.append(cutoff)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
     processes = get_running_claude_processes()
     session_pid: dict[str, int] = {
         info["session_id"]: pid
@@ -259,8 +279,8 @@ def get_sessions_from_db(hours: int) -> list[dict]:
     }
     with _db_lock:
         cur = _db_conn.execute(
-            "SELECT * FROM sessions WHERE last_active >= ? ORDER BY last_active DESC",
-            (cutoff,),
+            f"SELECT * FROM sessions {where} ORDER BY last_active DESC",
+            params,
         )
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
@@ -302,9 +322,23 @@ def get_sessions_from_db(hours: int) -> list[dict]:
     return sessions
 
 
-def get_sessions_for_range(time_range: str) -> list[dict]:
+def get_sessions_for_range(
+    time_range: str,
+    start: str | None = None,
+    end: str | None = None,
+) -> list[dict]:
     """Dispatch to JSONL (short ranges) or SQLite (historical ranges)."""
     hours = TIME_RANGE_HOURS.get(time_range, 24)
+
+    # Custom range always routes to SQLite
+    if start or end:
+        return get_sessions_from_db(start=start, end=end)
+
+    # "all" routes to SQLite with no cutoff
+    if hours is None:
+        return get_sessions_from_db()
+
+    # Existing routing logic unchanged
     if hours <= LIVE_HOURS:
         return get_all_sessions(hours=hours)
     return get_sessions_from_db(hours=hours)
@@ -1081,13 +1115,13 @@ async def list_sessions(time_range: str = "1d"):
         time_range = "1d"
     hours = TIME_RANGE_HOURS[time_range]
     sess = get_sessions_for_range(time_range)
-    stats = compute_global_stats(sess, hours)
+    stats = compute_global_stats(sess, hours if hours is not None else LIVE_HOURS)
     _update_prometheus(stats)
     # Only upsert when sessions came from JSONL (live path); historical DB reads
     # don't need to be written back and would add unnecessary write contention.
     # Reuse a single in-flight task to avoid queuing unbounded concurrent upserts.
     global _list_upsert_task
-    if hours <= LIVE_HOURS and (_list_upsert_task is None or _list_upsert_task.done()):
+    if hours is not None and hours <= LIVE_HOURS and (_list_upsert_task is None or _list_upsert_task.done()):
         _list_upsert_task = asyncio.create_task(_upsert_in_background(sess))
     return {
         "sessions": sess,
@@ -1294,7 +1328,26 @@ _list_upsert_task: asyncio.Task | None = None
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
+async def websocket_endpoint(
+    ws: WebSocket,
+    time_range: str = "1d",
+    start: str | None = None,
+    end: str | None = None,
+):
+    # Validate custom date params before accepting
+    if start:
+        try:
+            datetime.fromisoformat(start)
+        except ValueError:
+            await ws.close(code=1008, reason="Invalid start date")
+            return
+    if end:
+        try:
+            datetime.fromisoformat(end)
+        except ValueError:
+            await ws.close(code=1008, reason="Invalid end date")
+            return
+
     if time_range not in TIME_RANGE_HOURS:
         time_range = "1d"
     await ws.accept()
@@ -1302,13 +1355,13 @@ async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
     upsert_task: asyncio.Task | None = None  # per-connection handle prevents backlog buildup
     try:
         while True:
-            sess = get_sessions_for_range(time_range)
-            hours = TIME_RANGE_HOURS[time_range]
-            stats = compute_global_stats(sess, hours)
+            sess = get_sessions_for_range(time_range, start=start, end=end)
+            hours = TIME_RANGE_HOURS.get(time_range)
+            stats = compute_global_stats(sess, hours if hours is not None else LIVE_HOURS)
             _update_prometheus(stats)
             # Only upsert for live JSONL ranges; skip a new upsert if the previous one is
             # still running to prevent an unbounded backlog of write tasks.
-            if hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
+            if hours is not None and hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
                 upsert_task = asyncio.create_task(_upsert_in_background(sess))
             await ws.send_json({
                 "sessions": sess,
@@ -1317,8 +1370,13 @@ async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
                 "truncation": compute_truncation_savings(),
                 "time_range": time_range,
             })
-            # Historical ranges can poll slower — no live JSONL to watch
-            interval = 2 if TIME_RANGE_HOURS.get(time_range, 24) <= LIVE_HOURS else 10
+            # Live ranges poll fast; historical/all/custom ranges poll slower
+            if hours is not None and hours <= LIVE_HOURS:
+                interval = 2
+            elif start or end or hours is None:
+                interval = 30
+            else:
+                interval = 10
             await asyncio.sleep(interval)
     except WebSocketDisconnect:
         pass

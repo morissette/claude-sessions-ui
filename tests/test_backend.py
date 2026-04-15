@@ -543,6 +543,31 @@ class TestGetSessionsFromDb:
         result = backend.get_sessions_from_db(hours=24)
         assert result == []
 
+    def test_get_sessions_from_db_no_cutoff(self, tmp_path, monkeypatch):
+        """Calling with no hours/start/end should return all rows (no WHERE clause)."""
+        recent = _make_session("recent", last_active=datetime.now(UTC).isoformat())
+        old = _make_session("old", last_active="2000-01-01T00:00:00+00:00")
+        self._init_with_sessions(tmp_path, monkeypatch, [recent, old])
+        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        result = backend.get_sessions_from_db()
+        ids = [s["session_id"] for s in result]
+        assert "recent" in ids
+        assert "old" in ids
+
+    def test_get_sessions_from_db_custom_start_end(self, tmp_path, monkeypatch):
+        """Custom start/end filters by last_active range."""
+        in_range = _make_session("in_range", last_active="2025-06-15T12:00:00+00:00")
+        out_range = _make_session("out_range", last_active="2025-01-01T00:00:00+00:00")
+        self._init_with_sessions(tmp_path, monkeypatch, [in_range, out_range])
+        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        result = backend.get_sessions_from_db(
+            start="2025-06-01T00:00:00+00:00",
+            end="2025-06-30T23:59:59+00:00",
+        )
+        ids = [s["session_id"] for s in result]
+        assert "in_range" in ids
+        assert "out_range" not in ids
+
 
 # ─── get_sessions_for_range ───────────────────────────────────────────────────
 
@@ -551,7 +576,7 @@ class TestGetSessionsForRange:
     def test_short_range_uses_jsonl_path(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("1h")
         assert "jsonl" in called
         assert "db" not in called
@@ -559,7 +584,7 @@ class TestGetSessionsForRange:
     def test_1d_uses_jsonl_path(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("1d")
         assert "jsonl" in called
         assert "db" not in called
@@ -567,7 +592,7 @@ class TestGetSessionsForRange:
     def test_long_range_uses_db_path(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("3d")
         assert "db" in called
         assert "jsonl" not in called
@@ -575,15 +600,37 @@ class TestGetSessionsForRange:
     def test_invalid_range_falls_back_to_1d(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("bogus")
         assert "jsonl" in called
         assert called["jsonl"] == 24
 
     def test_all_valid_ranges_map_to_known_hours(self):
         for key, hours in backend.TIME_RANGE_HOURS.items():
-            assert isinstance(hours, int)
-            assert hours > 0
+            if key == "all":
+                assert hours is None
+            else:
+                assert isinstance(hours, int)
+                assert hours > 0
+
+    def test_time_range_all(self):
+        assert backend.TIME_RANGE_HOURS["all"] is None
+
+    def test_all_range_uses_db_path(self, monkeypatch):
+        called = {}
+        monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
+        backend.get_sessions_for_range("all")
+        assert "db" in called
+        assert "jsonl" not in called
+
+    def test_custom_range_uses_db_path(self, monkeypatch):
+        called = {}
+        monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", (start, end)) or [])
+        backend.get_sessions_for_range("1d", start="2025-01-01T00:00:00Z", end="2025-01-07T23:59:59Z")
+        assert "db" in called
+        assert "jsonl" not in called
 
 
 # ─── compute_global_stats with time_range_hours ───────────────────────────────
