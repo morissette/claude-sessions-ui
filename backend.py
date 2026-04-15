@@ -312,6 +312,22 @@ def get_all_sessions_unbounded() -> list[dict]:
     return get_all_sessions(hours=None)
 
 
+def get_session_by_id(session_id: str) -> dict | None:
+    """Return a single session dict by ID, checking SQLite first then JSONL fallback."""
+    # Try SQLite first (covers historical sessions not in the live 24h window)
+    if _db_conn is not None:
+        with _db_lock:
+            cur = _db_conn.execute(
+                "SELECT title FROM sessions WHERE session_id = ?", (session_id,)
+            )
+            row = cur.fetchone()
+        if row is not None:
+            return {"session_id": session_id, "title": row[0]}
+    # Fall back to JSONL for sessions within the live window
+    sessions = get_all_sessions()
+    return next((s for s in sessions if s["session_id"] == session_id), None)
+
+
 async def _startup_backfill() -> None:
     """Asynchronously backfill all historical JSONL sessions into SQLite."""
     try:
@@ -819,8 +835,10 @@ async def list_sessions(time_range: str = "1d"):
     _update_prometheus(stats)
     # Only upsert when sessions came from JSONL (live path); historical DB reads
     # don't need to be written back and would add unnecessary write contention.
-    if hours <= LIVE_HOURS:
-        asyncio.create_task(_upsert_in_background(sess))
+    # Reuse a single in-flight task to avoid queuing unbounded concurrent upserts.
+    global _list_upsert_task
+    if hours <= LIVE_HOURS and (_list_upsert_task is None or _list_upsert_task.done()):
+        _list_upsert_task = asyncio.create_task(_upsert_in_background(sess))
     return {
         "sessions": sess,
         "stats": stats,
@@ -859,9 +877,10 @@ async def summarize_session(session_id: str):
     if cached:
         return {"session_id": session_id, "summary": cached, "cached": True}
 
-    # Find the session to get its title text
-    sessions = get_all_sessions()
-    session = next((s for s in sessions if s["session_id"] == session_id), None)
+    # Find the session to get its title text — check SQLite first so historical
+    # sessions (older than LIVE_HOURS) can be summarized without a 404.
+    loop = asyncio.get_running_loop()
+    session = await loop.run_in_executor(None, get_session_by_id, session_id)
     if session is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Session not found")
@@ -871,7 +890,6 @@ async def summarize_session(session_id: str):
         return {"session_id": session_id, "summary": None, "cached": False}
 
     # Run Ollama in a thread so we don't block the event loop
-    loop = asyncio.get_running_loop()
     summary = await loop.run_in_executor(None, ollama_summarize, raw_title)
 
     if summary:
@@ -893,6 +911,7 @@ async def prometheus_metrics():
 # ─── WebSocket ────────────────────────────────────────────────────────────────
 
 _active_ws: list[WebSocket] = []
+_list_upsert_task: asyncio.Task | None = None
 
 
 @app.websocket("/ws")
