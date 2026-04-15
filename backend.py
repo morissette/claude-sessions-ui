@@ -1156,6 +1156,94 @@ async def session_detail(session_id: str, offset: int = 0, limit: int = 200):
     return result
 
 
+def render_transcript(path: Path) -> str:
+    """Render all messages from a session JSONL as a readable markdown transcript."""
+    session_id = path.stem
+    result = parse_session_detail(path, offset=0, limit=999_999)
+    messages = result["messages"]
+    total = result["total_messages"]
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines: list[str] = [
+        f"# Claude Session — {session_id[:8]}",
+        "",
+        f"**Session ID:** `{session_id}`  ",
+        f"**Exported:** {now}  ",
+        f"**Messages:** {total}",
+        "",
+        "---",
+        "",
+    ]
+
+    for msg in messages:
+        ts = ""
+        if msg.get("timestamp"):
+            with contextlib.suppress(ValueError):
+                ts = f" · {datetime.fromisoformat(msg['timestamp'].replace('Z', '+00:00')).strftime('%H:%M:%S')}"
+
+        mtype = msg.get("type", "")
+
+        if mtype == "user":
+            lines += [f"### You{ts}", "", msg.get("content", ""), "", "---", ""]
+        elif mtype == "assistant":
+            if msg.get("thinking"):
+                lines += [
+                    f"### Claude{ts}",
+                    "",
+                    "<details><summary>Extended thinking</summary>",
+                    "",
+                    msg["thinking"],
+                    "",
+                    "</details>",
+                    "",
+                    msg.get("content", ""),
+                    "",
+                    "---",
+                    "",
+                ]
+            else:
+                lines += [f"### Claude{ts}", "", msg.get("content", ""), "", "---", ""]
+        elif mtype == "tool_use":
+            tool = msg.get("tool_name") or "unknown"
+            lines += [
+                f"#### Tool: {tool}{ts}",
+                "",
+                "```",
+                msg.get("content", ""),
+                "```",
+                "",
+            ]
+        elif mtype == "tool_result":
+            tool = msg.get("tool_name") or "unknown"
+            lines += [
+                f"#### Result: {tool}",
+                "",
+                "```",
+                msg.get("content", ""),
+                "```",
+                "",
+            ]
+        elif mtype == "summary":
+            lines += [f"> **Summary:** {msg.get('content', '')}", ""]
+
+    return "\n".join(lines)
+
+
+@app.get("/api/sessions/{session_id}/transcript")
+async def session_transcript(session_id: str):
+    path = find_session_file(session_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    loop = asyncio.get_running_loop()
+    text = await loop.run_in_executor(None, render_transcript, path)
+    filename = f"claude-session-{session_id[:8]}.md"
+    return PlainTextResponse(
+        text,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/api/sessions/{session_id}/export-skill")
 async def export_skill(session_id: str, scope: str = "global"):
     if scope not in ("global", "local"):

@@ -216,6 +216,7 @@ export default function App() {
           key={selectedSessionId}
           sessionId={selectedSessionId}
           onClose={() => setSelectedSessionId(null)}
+          ollama={ollama}
         />
       )}
     </div>
