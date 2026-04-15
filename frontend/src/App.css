@@ -198,6 +198,8 @@
   border-color: rgba(0, 212, 255, 0.25);
 }
 
+/* ── View toggle + project filter ───────────────────────── */
+
 .view-controls {
   display: flex;
   align-items: center;
@@ -205,28 +207,72 @@
   margin-left: auto;
 }
 
-.toolbar__view-btn {
-  padding: 4px 9px;
+.toolbar__view-toggle {
+  display: inline-flex;
   border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 500;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.toolbar__view-btn {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  background: none;
+  border: none;
   cursor: pointer;
-  transition: all 0.12s;
+  color: var(--text-muted);
   font-family: inherit;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
 }
 
 .toolbar__view-btn:hover {
   color: var(--text);
-  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 .toolbar__view-btn.active {
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.project-filter__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
   background: var(--accent-dim);
-  border-color: rgba(0, 212, 255, 0.25);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.project-filter__clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  color: var(--accent);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Date range picker ───────────────────────────────────── */
+
+.toolbar__date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.toolbar__date-error {
+  color: var(--color-error, #ef4444);
+  font-size: 0.75rem;
 }
 
 /* ── Sessions grid ───────────────────────────────────────── */
