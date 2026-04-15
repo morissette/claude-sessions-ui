@@ -68,9 +68,12 @@ function TokenBar({ stats }) {
   )
 }
 
-export default function SessionCard({ session, ollama }) {
+export default function SessionCard({ session, ollama, onSelect }) {
   const [summary, setSummary] = useState(session.ai_summary || null)
   const [summarizing, setSummarizing] = useState(false)
+  const [exportState, setExportState] = useState('idle') // idle | loading | done | error
+  const [exportScope, setExportScope] = useState('global')
+  const [exportedName, setExportedName] = useState('')
 
   const summarize = useCallback(async () => {
     if (summarizing || summary) return
@@ -83,6 +86,22 @@ export default function SessionCard({ session, ollama }) {
     setSummarizing(false)
   }, [session.session_id, summarizing, summary])
 
+  const handleExport = useCallback(async () => {
+    setExportState('loading')
+    try {
+      const res = await fetch(
+        `/api/sessions/${session.session_id}/export-skill?scope=${exportScope}`,
+        { method: 'POST' }
+      )
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setExportedName(data.skill_name)
+      setExportState('done')
+    } catch {
+      setExportState('error')
+    }
+  }, [session.session_id, exportScope])
+
   const model = useMemo(() => modelShort(session.model), [session.model])
   const ago = useMemo(() => timeAgo(session.last_active), [session.last_active])
   const active = session.is_active
@@ -94,7 +113,11 @@ export default function SessionCard({ session, ollama }) {
   }, [session.project_path])
 
   return (
-    <div className={`session-card ${active ? 'card-active' : 'card-idle'}`}>
+    <div
+      className={`session-card ${active ? 'card-active' : 'card-idle'}`}
+      onClick={() => onSelect?.(session.session_id)}
+      style={{ cursor: 'pointer' }}
+    >
       {/* top accent bar */}
       <div className={`card-accent-bar ${active ? 'bar-active' : 'bar-idle'}`} />
 
@@ -210,6 +233,29 @@ export default function SessionCard({ session, ollama }) {
       {/* session id */}
       <div className="session-id-row">
         <span className="session-id mono">{session.session_id.slice(0, 8)}…</span>
+      </div>
+
+      {/* export as skill */}
+      <div className="card-export" onClick={e => e.stopPropagation()}>
+        <select
+          className="export-scope"
+          value={exportScope}
+          onChange={e => setExportScope(e.target.value)}
+          disabled={exportState === 'loading'}
+        >
+          <option value="global">Global skill</option>
+          <option value="local">Local skill</option>
+        </select>
+        <button
+          className={`export-btn export-btn-${exportState}`}
+          disabled={exportState === 'loading' || exportState === 'done'}
+          onClick={handleExport}
+        >
+          {exportState === 'idle' && 'Export as skill'}
+          {exportState === 'loading' && 'Exporting…'}
+          {exportState === 'done' && `✓ /${exportedName}`}
+          {exportState === 'error' && 'Retry export'}
+        </button>
       </div>
     </div>
   )
