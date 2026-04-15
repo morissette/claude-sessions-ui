@@ -48,7 +48,6 @@ subagents_total = Gauge("claude_subagents_total", "Total subagents spawned acros
 async def lifespan(_app: FastAPI):
     init_db()
     asyncio.create_task(_startup_backfill())
-    asyncio.create_task(backfill_daily_costs())
     yield
     # Shutdown: acquire the lock so we don't race with in-flight upsert threads,
     # then close the connection to release file locks/descriptors.
@@ -93,35 +92,6 @@ TRUNCATION_SAVINGS_FILE = Path.home() / ".claude" / "truncation_savings.jsonl"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 SUMMARY_MODEL = "llama3.2:3b"
 
-CONFIG_PATH = Path.home() / ".claude" / "claude-sessions-ui-config.json"
-_config_cache: tuple[float, dict] | None = None
-
-
-def _read_config_from_disk() -> dict:
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {"daily_budget_usd": None, "weekly_budget_usd": None}
-
-
-def read_config() -> dict:
-    global _config_cache
-    now = time.monotonic()
-    if _config_cache and now - _config_cache[0] < 5:
-        return _config_cache[1]
-    data = _read_config_from_disk()
-    _config_cache = (now, data)
-    return data
-
-
-def write_config(data: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(data, indent=2))
-    global _config_cache
-    _config_cache = None  # invalidate cache
-
 # Cost we'd pay for one summary via Claude Haiku (~500 input + ~15 output tokens)
 SUMMARY_COST_ESTIMATE_USD = round(500 * 0.8 / 1_000_000 + 15 * 4.0 / 1_000_000, 6)  # ~$0.00046
 
@@ -153,18 +123,8 @@ _analytics_cache: dict[str, tuple[float, dict]] = {}
 _db_conn: sqlite3.Connection | None = None
 _db_lock = threading.Lock()
 
-# FTS backfill state
-_fts_backfill_running: bool = False
-
 
 # ─── SQLite storage ──────────────────────────────────────────────────────────
-
-
-@contextlib.contextmanager
-def get_db():
-    """Yield the shared SQLite connection under the write lock."""
-    with _db_lock:
-        yield _db_conn
 
 
 def _normalize_ts(ts: str) -> str:
@@ -219,28 +179,9 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active);
         CREATE INDEX IF NOT EXISTS idx_sessions_started_at  ON sessions(started_at);
     """)
-    _db_conn.execute("""
-        CREATE TABLE IF NOT EXISTS daily_costs (
-            date            TEXT PRIMARY KEY,
-            total_cost_usd  REAL NOT NULL DEFAULT 0.0,
-            model_breakdown TEXT NOT NULL DEFAULT '{}',
-            session_count   INT  NOT NULL DEFAULT 0,
-            last_synced_at  TEXT
-        )
-    """)
     # Migrate: add last_activity column if it doesn't exist (SQLite has no ADD COLUMN IF NOT EXISTS)
     with contextlib.suppress(sqlite3.OperationalError):
         _db_conn.execute("ALTER TABLE sessions ADD COLUMN last_activity TEXT")
-    # FTS5 virtual table for full-text search across session messages
-    _db_conn.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS session_messages USING fts5(
-            session_id UNINDEXED,
-            role,
-            content,
-            ts UNINDEXED,
-            tokenize = 'porter ascii'
-        )
-    """)
     _db_conn.commit()
 
 
@@ -306,32 +247,6 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
             """,
             rows,
         )
-        # Update daily_costs for each session's date
-        for s in sessions:
-            started_at = s.get("started_at")
-            model = s.get("model")
-            cost = s["stats"].get("estimated_cost_usd")
-            if started_at:
-                try:
-                    date_str = _normalize_ts(started_at)[:10]  # "YYYY-MM-DD"
-                    row = _db_conn.execute(
-                        "SELECT total_cost_usd, model_breakdown, session_count "
-                        "FROM daily_costs WHERE date = ?",
-                        (date_str,),
-                    ).fetchone()
-                    if row:
-                        breakdown = json.loads(row[1] or "{}")
-                        breakdown[model or "unknown"] = (
-                            breakdown.get(model or "unknown", 0.0) + (cost or 0.0)
-                        )
-                        _db_conn.execute(
-                            "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
-                            (date_str, row[0] + (cost or 0.0), json.dumps(breakdown),
-                             row[2] + 1, datetime.now(UTC).isoformat()),
-                        )
-                    # else: will be populated by next backfill or on next startup
-                except Exception:
-                    pass
         _db_conn.commit()
 
 
@@ -462,7 +377,6 @@ async def _startup_backfill() -> None:
         logger.info("Startup backfill complete: %d sessions stored", len(sessions))
     except Exception:
         logger.exception("Startup backfill failed")
-    asyncio.create_task(backfill_fts())
 
 
 async def _upsert_in_background(sessions: list[dict]) -> None:
@@ -471,222 +385,6 @@ async def _upsert_in_background(sessions: list[dict]) -> None:
         await asyncio.get_running_loop().run_in_executor(None, upsert_sessions_to_db, sessions)
     except Exception:
         logger.exception("Background SQLite upsert failed")
-
-
-async def backfill_daily_costs() -> None:
-    def _run():
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT DATE(started_at) AS date, model, SUM(estimated_cost_usd), COUNT(*) "
-                "FROM sessions WHERE started_at IS NOT NULL GROUP BY DATE(started_at), model"
-            ).fetchall()
-            by_date: dict[str, dict] = {}
-            for date_str, model, cost, count in rows:
-                if not date_str:
-                    continue
-                if date_str not in by_date:
-                    by_date[date_str] = {"total": 0.0, "models": {}, "count": 0}
-                by_date[date_str]["total"] += cost or 0.0
-                by_date[date_str]["models"][model or "unknown"] = (
-                    by_date[date_str]["models"].get(model or "unknown", 0.0) + (cost or 0.0)
-                )
-                by_date[date_str]["count"] += count or 0
-            for date_str, data in by_date.items():
-                conn.execute(
-                    "INSERT OR REPLACE INTO daily_costs VALUES (?, ?, ?, ?, ?)",
-                    (date_str, data["total"], json.dumps(data["models"]),
-                     data["count"], datetime.now(UTC).isoformat()),
-                )
-            conn.commit()
-
-    await asyncio.get_event_loop().run_in_executor(None, _run)
-
-
-# ─── Full-text search helpers ────────────────────────────────────────────────
-
-
-def _extract_messages_from_jsonl(jsonl_path: Path) -> list[tuple[str, str, str, str]]:
-    """Parse a JSONL file and return (session_id, role, content, ts) tuples for FTS indexing."""
-    sid = jsonl_path.stem
-    rows: list[tuple[str, str, str, str]] = []
-    try:
-        with open(jsonl_path, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                msg = entry.get("message", {})
-                role = msg.get("role") or entry.get("type", "")
-                if role not in ("user", "assistant"):
-                    continue
-                content = ""
-                raw_content = msg.get("content", "")
-                if isinstance(raw_content, str):
-                    content = raw_content
-                elif isinstance(raw_content, list):
-                    for block in raw_content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            content += block.get("text", "") + " "
-                if not content.strip():
-                    continue
-                rows.append((sid, role, content[:4000], entry.get("timestamp", "")))
-    except OSError:
-        pass
-    return rows
-
-
-def _sync_fts(conn: sqlite3.Connection, session_id: str, jsonl_path: Path) -> None:
-    """Re-index a single session's messages in the FTS5 table."""
-    conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
-    rows = _extract_messages_from_jsonl(jsonl_path)
-    if rows:
-        conn.executemany(
-            "INSERT INTO session_messages (session_id, role, content, ts) VALUES (?, ?, ?, ?)",
-            rows,
-        )
-
-
-async def backfill_fts() -> None:
-    """Asynchronously populate session_messages FTS table from all JSONL files."""
-    global _fts_backfill_running
-    _fts_backfill_running = True
-    try:
-        def _run() -> None:
-            jsonl_files = list(CLAUDE_DIR.rglob("*.jsonl"))
-            rows_to_insert: list[tuple[str, str, str, str]] = []
-            with _db_lock:
-                if _db_conn is None:
-                    return
-                for jf in jsonl_files:
-                    sid = jf.stem
-                    existing = _db_conn.execute(
-                        "SELECT 1 FROM session_messages WHERE session_id = ? LIMIT 1", (sid,)
-                    ).fetchone()
-                    if existing:
-                        continue
-                    rows_to_insert.extend(_extract_messages_from_jsonl(jf))
-                if rows_to_insert:
-                    _db_conn.executemany(
-                        "INSERT INTO session_messages (session_id, role, content, ts)"
-                        " VALUES (?, ?, ?, ?)",
-                        rows_to_insert,
-                    )
-                    _db_conn.commit()
-
-        await asyncio.get_event_loop().run_in_executor(None, _run)
-        logger.info("FTS backfill complete")
-    except Exception:
-        logger.exception("FTS backfill failed")
-    finally:
-        _fts_backfill_running = False
-
-
-async def search_fts(query: str, cutoff: datetime, limit: int) -> list[dict]:
-    """Search session_messages FTS5 table for messages matching query."""
-
-    def _query_db() -> list:
-        try:
-            with _db_lock:
-                if _db_conn is None:
-                    return []
-                rows = _db_conn.execute(
-                    """
-                    SELECT sm.session_id, sm.role, sm.ts,
-                           snippet(session_messages, 2, '**', '**', '...', 16) AS snip,
-                           rank
-                    FROM session_messages sm
-                    JOIN sessions s ON sm.session_id = s.session_id
-                    WHERE session_messages MATCH ?
-                      AND s.last_active >= ?
-                    ORDER BY rank
-                    LIMIT ?
-                    """,
-                    (query, cutoff.isoformat(), limit),
-                ).fetchall()
-            return list(rows)
-        except Exception:
-            return []
-
-    rows = await asyncio.get_event_loop().run_in_executor(None, _query_db)
-    results: list[dict] = []
-    for sid, role, ts, snip, score in rows:
-        session_info: dict = {}
-        with _db_lock:
-            if _db_conn is not None:
-                row = _db_conn.execute(
-                    "SELECT project_name, title FROM sessions WHERE session_id = ?", (sid,)
-                ).fetchone()
-                if row:
-                    session_info = {"project_name": row[0], "session_title": row[1]}
-        results.append({
-            "session_id": sid,
-            "project_name": session_info.get("project_name", ""),
-            "session_title": session_info.get("session_title", ""),
-            "role": role,
-            "snippet": snip or "",
-            "ts": ts,
-            "score": score or 0.0,
-        })
-    return results
-
-
-async def search_jsonl_live(query: str, cutoff: datetime, limit: int) -> list[dict]:
-    """Scan live JSONL files for messages containing the query string."""
-
-    def _scan() -> list[dict]:
-        results: list[dict] = []
-        q_lower = query.lower()
-        cutoff_ts = cutoff.timestamp()
-        for jf in CLAUDE_DIR.rglob("*.jsonl"):
-            try:
-                if jf.stat().st_mtime < cutoff_ts:
-                    continue
-            except OSError:
-                continue
-            if len(results) >= limit:
-                break
-            sid = jf.stem
-            try:
-                with open(jf, encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        try:
-                            entry = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        msg = entry.get("message", {})
-                        role = msg.get("role") or entry.get("type", "")
-                        if role not in ("user", "assistant"):
-                            continue
-                        content = ""
-                        raw = msg.get("content", "")
-                        if isinstance(raw, str):
-                            content = raw
-                        elif isinstance(raw, list):
-                            for block in raw:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    content += block.get("text", "") + " "
-                        if q_lower in content.lower():
-                            idx = content.lower().find(q_lower)
-                            start = max(0, idx - 50)
-                            end = min(len(content), idx + len(query) + 50)
-                            snippet = content[start:end]
-                            results.append({
-                                "session_id": sid,
-                                "project_name": str(jf.parent.name),
-                                "session_title": sid[:20],
-                                "role": role,
-                                "snippet": f"...{snippet}...",
-                                "ts": entry.get("timestamp", ""),
-                                "score": 1.0,
-                            })
-                            if len(results) >= limit:
-                                break
-            except OSError:
-                continue
-        return results
-
-    return await asyncio.get_event_loop().run_in_executor(None, _scan)
 
 
 # ─── Process discovery ────────────────────────────────────────────────────────
@@ -1647,86 +1345,6 @@ async def list_sessions(time_range: str = "1d"):
         "truncation": compute_truncation_savings(),
         "time_range": time_range,
     }
-
-
-@app.get("/api/search")
-async def search_sessions(q: str = "", time_range: str = "1d", limit: int = 20):
-    q = q.strip()[:200]
-    if not q:
-        return {"query": q, "results": [], "total": 0, "index_ready": not _fts_backfill_running}
-
-    limit = max(1, min(100, limit))
-    hours = TIME_RANGE_HOURS.get(time_range, 24)
-    cutoff = datetime.now(UTC) - timedelta(hours=hours)
-
-    try:
-        if hours <= LIVE_HOURS:
-            results = await search_jsonl_live(q, cutoff, limit)
-        else:
-            results = await search_fts(q, cutoff, limit)
-    except Exception:
-        results = []
-
-    return {
-        "query": q,
-        "results": results[:limit],
-        "total": len(results),
-        "index_ready": not _fts_backfill_running,
-    }
-
-
-def parse_trend_range(r: str) -> int:
-    mapping = {"2w": 14, "4w": 28, "3m": 90}
-    return mapping.get(r, 28)
-
-
-@app.get("/api/trends")
-async def get_trends(range: str = "4w"):
-    days = parse_trend_range(range)
-    from datetime import date as date_type
-
-    cutoff = (date_type.today() - timedelta(days=days)).isoformat()
-
-    def _query():
-        with get_db() as conn:
-            return conn.execute(
-                "SELECT date, total_cost_usd, model_breakdown, session_count "
-                "FROM daily_costs WHERE date >= ? ORDER BY date",
-                (cutoff,),
-            ).fetchall()
-
-    rows = await asyncio.get_event_loop().run_in_executor(None, _query)
-    config = read_config()
-    days_data = [
-        {
-            "date": r[0],
-            "total_cost_usd": r[1],
-            "by_model": json.loads(r[2] or "{}"),
-            "session_count": r[3],
-        }
-        for r in rows
-    ]
-    return {
-        "days": days_data,
-        "daily_budget_usd": config.get("daily_budget_usd"),
-        "weekly_budget_usd": config.get("weekly_budget_usd"),
-    }
-
-
-@app.get("/api/config")
-async def get_config():
-    return read_config()
-
-
-@app.put("/api/config")
-async def put_config(body: dict):
-    allowed_keys = {"daily_budget_usd", "weekly_budget_usd"}
-    config = read_config()
-    for k, v in body.items():
-        if k in allowed_keys:
-            config[k] = float(v) if v is not None else None
-    write_config(config)
-    return config
 
 
 @app.get("/api/projects")

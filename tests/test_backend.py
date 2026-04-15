@@ -934,7 +934,6 @@ class TestExportSkill:
         assert response.status_code == 404
 
 
-
 # ─── Analytics endpoint ───────────────────────────────────────────────────────
 
 
@@ -951,42 +950,6 @@ def test_analytics_invalid_session_id():
     resp = client.get("/api/sessions/../etc/passwd/analytics")
     # Should be 400 or 404, not 500
     assert resp.status_code in (400, 404, 422)
-
-
-# ─── Config API ───────────────────────────────────────────────────────────────
-
-
-def test_read_config_missing_file(tmp_path, monkeypatch):
-    import backend
-    monkeypatch.setattr(backend, 'CONFIG_PATH', tmp_path / "nonexistent.json")
-    monkeypatch.setattr(backend, '_config_cache', None)
-    cfg = backend._read_config_from_disk()
-    assert cfg == {"daily_budget_usd": None, "weekly_budget_usd": None}
-
-
-def test_put_config_ignores_unknown_keys():
-    from fastapi.testclient import TestClient
-    client = TestClient(backend.app)
-    # First ensure config exists
-    client.put("/api/config", json={"daily_budget_usd": 5.0})
-    # Now try to set an unknown key
-    resp = client.put("/api/config", json={"evil_key": "x", "daily_budget_usd": 10.0})
-    data = resp.json()
-    assert "evil_key" not in data
-    assert data["daily_budget_usd"] == 10.0
-
-
-# ─── Search endpoint ──────────────────────────────────────────────────────────
-
-
-def test_search_empty_query():
-    from fastapi.testclient import TestClient
-    client = TestClient(backend.app)
-    resp = client.get("/api/search?q=")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["results"] == []
-    assert data["total"] == 0
 
 
 # ─── compute_project_stats ────────────────────────────────────────────────────
