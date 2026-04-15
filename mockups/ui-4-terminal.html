@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terminal — Dashboard Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0a;
+    --surface: #0f0f0f;
+    --surface-2: #151515;
+    --surface-3: #1a1a1a;
+    --border: #1e1e1e;
+    --border-bright: #2a2a2a;
+    --text: #d0d0d0;
+    --text-muted: #888;
+    --text-dim: #444;
+    --accent: #39ff14;
+    --accent-dim: rgba(57,255,20,0.06);
+    --active: #39ff14;
+    --active-glow: rgba(57,255,20,0.25);
+    --cost: #ffd700;
+    --idle: #555;
+    --blue: #5af;
+    --cyan: #0ff;
+    --violet: #c8a;
+  }
+
+  body {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Back nav */
+  .back-nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 16px;
+    font-size: 11px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .back-nav a { color: var(--text-muted); text-decoration: none; }
+  .back-nav a:hover { color: var(--accent); }
+  .back-nav::before { content: '> '; color: var(--accent); }
+
+  /* Title bar (window chrome feel) */
+  .title-bar {
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--accent-dim);
+    padding: 0 16px;
+    height: 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+  .title-bar-dots { display: flex; gap: 5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-r { background: #ff5f56; }
+  .dot-y { background: #ffbd2e; }
+  .dot-g { background: #27c93f; }
+  .title-bar-title { color: var(--accent); }
+
+  /* Header */
+  .app-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-bright);
+    height: 48px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; }
+  .prompt-char { color: var(--accent); font-size: 14px; font-weight: 700; }
+  .brand-name { font-size: 12px; color: var(--text); font-weight: 600; }
+  .brand-ver { color: var(--text-dim); font-size: 10px; margin-left: 4px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .update-time { font-size: 10px; color: var(--text-dim); }
+  .status-live {
+    font-size: 10px; font-weight: 600; color: var(--accent);
+    border: 1px solid rgba(57,255,20,0.3); padding: 2px 7px;
+    display: flex; align-items: center; gap: 5px;
+    box-shadow: 0 0 8px rgba(57,255,20,0.1);
+  }
+  .status-model { font-size: 10px; color: var(--text-dim); border: 1px solid var(--border-bright); padding: 2px 7px; display: flex; align-items: center; gap: 5px; }
+  .status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: blink 1.5s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* Stats bar */
+  .stats-section { border-bottom: 1px solid var(--border-bright); }
+  .stats-header {
+    background: var(--surface-2);
+    padding: 5px 16px;
+    font-size: 10px; color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 0.05em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .stats-header::before { content: '# '; color: var(--text-dim); }
+  .stats-bar {
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .stat-tile {
+    padding: 12px 14px; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat-tile:last-child { border-right: none; }
+  .stat-label {
+    font-size: 9px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.06em;
+  }
+  .stat-label::before { content: '│ '; }
+  .stat-value { font-size: 18px; font-weight: 700; line-height: 1; }
+  .stat-sub { font-size: 9px; color: var(--text-dim); }
+  .sv-accent { color: var(--accent); text-shadow: 0 0 10px rgba(57,255,20,0.5); }
+  .sv-cost { color: var(--cost); }
+  .sv-blue { color: var(--blue); }
+  .sv-cyan { color: var(--cyan); }
+  .sv-violet { color: var(--violet); }
+  .sv-green { color: var(--active); }
+
+  /* Savings */
+  .savings-strip {
+    background: rgba(57,255,20,0.03);
+    border-bottom: 1px solid var(--border);
+    padding: 5px 16px; font-size: 10px; color: var(--accent);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .savings-strip::before { content: '> '; }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border-bright);
+    gap: 12px;
+  }
+  .filter-group { display: flex; gap: 1px; }
+  .ftab {
+    padding: 4px 10px; border: 1px solid var(--border-bright);
+    background: var(--surface); color: var(--text-dim);
+    font-size: 10px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    font-family: inherit; letter-spacing: 0.04em;
+  }
+  .ftab::before { content: '['; color: var(--text-dim); }
+  .ftab::after { content: ']'; color: var(--text-dim); }
+  .ftab.active { background: var(--accent-dim); color: var(--accent); border-color: rgba(57,255,20,0.3); }
+  .ftab.active::before, .ftab.active::after { color: var(--accent); }
+  .ftab-count { font-size: 9px; color: inherit; opacity: 0.7; }
+  .toolbar-right { display: flex; align-items: center; gap: 14px; }
+  .ctrl-group { display: flex; align-items: center; gap: 1px; }
+  .ctrl-label { font-size: 9px; color: var(--text-dim); margin-right: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .ctrl-btn {
+    padding: 3px 8px;
+    border: 1px solid var(--border-bright); background: var(--surface);
+    color: var(--text-dim); font-size: 9px; cursor: pointer; font-family: inherit;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .ctrl-btn:hover { color: var(--text); border-color: var(--border-bright); }
+  .ctrl-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(57,255,20,0.3); }
+
+  /* Grid */
+  .sessions-container { flex: 1; padding: 12px 16px 40px; }
+  .sessions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 1px;
+    background: var(--border);
+  }
+
+  /* Card */
+  .session-card {
+    background: var(--surface);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .session-card:hover { background: var(--surface-2); }
+  .card-active { border-top: 1px solid var(--active); box-shadow: 0 0 12px rgba(57,255,20,0.05) inset; }
+  .card-idle {}
+
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-header-left { display: flex; align-items: center; gap: 6px; }
+  .sdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .sdot-active { background: var(--active); box-shadow: 0 0 6px var(--active-glow); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .sdot-idle { background: var(--idle); }
+  .project-name { font-weight: 700; font-size: 11px; color: var(--text); }
+  .branch-tag { font-size: 9px; padding: 0 4px; background: var(--surface-3); border: 1px solid var(--border-bright); color: var(--text-dim); }
+  .time-ago { font-size: 9px; color: var(--text-dim); }
+  .pid-tag { font-size: 9px; color: var(--accent); border: 1px solid rgba(57,255,20,0.25); padding: 0 4px; }
+  .card-path { font-size: 9px; color: var(--text-dim); padding: 3px 12px; }
+  .card-path::before { content: '$ '; color: var(--accent); }
+  .card-title { font-size: 10px; line-height: 1.6; padding: 4px 12px 6px; color: var(--text-muted); }
+  .ai-tag { color: var(--accent); margin-right: 3px; }
+  .activity-row {
+    display: flex; align-items: center; gap: 5px;
+    padding: 2px 12px 4px; font-size: 9px; color: var(--accent);
+  }
+  .activity-row::before { content: '> '; }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 12px 6px; }
+  .badge { font-size: 9px; font-weight: 700; padding: 1px 5px; letter-spacing: 0.04em; }
+  .b-sonnet { color: #818cf8; background: rgba(129,140,248,0.08); border: 1px solid rgba(129,140,248,0.2); }
+  .b-opus { color: #f472b6; background: rgba(244,114,182,0.08); border: 1px solid rgba(244,114,182,0.2); }
+  .b-haiku { color: #34d399; background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.2); }
+  .b-active { color: var(--active); background: var(--accent-dim); border: 1px solid rgba(57,255,20,0.2); }
+  .b-idle { color: var(--idle); background: transparent; border: 1px solid var(--border-bright); }
+  .b-turns { color: var(--violet); background: rgba(204,136,170,0.06); border: 1px solid rgba(204,136,170,0.15); }
+  .b-agents { color: var(--cost); background: rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.15); }
+  .b-compact { color: var(--cost); background: rgba(255,215,0,0.08); border: 1px solid rgba(255,215,0,0.25); }
+
+  .token-bar-wrap { padding: 0 12px 6px; }
+  .token-bar { height: 2px; background: var(--surface-3); display: flex; margin-bottom: 4px; }
+  .tb-input { background: #818cf8; }
+  .tb-output { background: var(--cyan); }
+  .tb-ccreate { background: var(--cost); }
+  .tb-cread { background: var(--active); }
+  .token-legend { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tl-item { display: flex; align-items: center; gap: 3px; font-size: 8px; color: var(--text-dim); }
+  .tl-dot { width: 5px; height: 5px; }
+
+  .card-cost-row { display: flex; border-top: 1px solid var(--border); }
+  .cost-block { flex: 1; padding: 6px 12px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; }
+  .cost-block:last-child { border-right: none; }
+  .cost-label { font-size: 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .cost-value { font-size: 11px; font-weight: 700; }
+  .cv-cost { color: var(--cost); }
+  .cv-tokens { color: var(--blue); }
+  .cv-cache { color: var(--active); }
+
+  .session-id-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 12px; background: var(--surface-2); border-top: 1px solid var(--border);
+  }
+  .session-id { font-size: 8px; color: var(--text-dim); }
+  .open-hint { font-size: 9px; color: var(--accent); font-weight: 700; }
+
+  /* Detail */
+  .detail-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200;
+    display: flex; justify-content: flex-end;
+  }
+  .detail-panel {
+    width: 500px; max-width: 90vw;
+    background: var(--surface);
+    border-left: 1px solid var(--accent);
+    box-shadow: -4px 0 32px rgba(57,255,20,0.08);
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  .detail-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-bright);
+    display: flex; align-items: flex-start; justify-content: space-between;
+    background: var(--surface-2);
+  }
+  .detail-header::before {
+    content: '┌─ ';
+    color: var(--accent);
+    font-size: 12px;
+    align-self: center;
+    margin-right: 4px;
+  }
+  .detail-title { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; }
+  .detail-sub { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+  .detail-close {
+    background: transparent; border: 1px solid var(--border-bright);
+    color: var(--text-muted); width: 24px; height: 24px;
+    cursor: pointer; font-size: 12px; font-family: inherit;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .detail-btn {
+    font-size: 9px; font-weight: 700; padding: 3px 8px;
+    border: 1px solid var(--border-bright); background: var(--surface-3);
+    cursor: pointer; color: var(--text-muted); font-family: inherit;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .detail-skill-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 16px; border-bottom: 1px solid var(--border);
+    font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .detail-skill-row::before { content: '$ '; color: var(--accent); }
+  .detail-skill-row select, .detail-skill-row button {
+    font-size: 9px; padding: 2px 6px;
+    border: 1px solid var(--border-bright); background: var(--surface-3); color: var(--text); font-family: inherit; cursor: pointer;
+  }
+  .detail-skill-row button { background: rgba(57,255,20,0.1); color: var(--accent); border-color: rgba(57,255,20,0.3); }
+  .detail-body { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+
+  .msg-group { display: flex; flex-direction: column; gap: 3px; }
+  .msg-role { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.06em; }
+  .msg-role.user-role { color: var(--accent); }
+  .msg-role.user-role::before { content: '> '; }
+  .msg-role::before { content: '> '; color: var(--text-dim); }
+  .msg-user {
+    background: rgba(57,255,20,0.04); border: 1px solid rgba(57,255,20,0.15);
+    padding: 7px 10px; font-size: 11px; line-height: 1.6; color: var(--text);
+    border-left: 2px solid var(--accent);
+  }
+  .msg-assistant {
+    background: var(--surface-2); border: 1px solid var(--border-bright);
+    padding: 7px 10px; font-size: 11px; line-height: 1.6; color: var(--text-muted);
+    border-left: 2px solid var(--text-dim);
+  }
+  .msg-ts { font-size: 8px; color: var(--text-dim); display: block; margin-bottom: 4px; }
+  .msg-ts::before { content: '@ '; }
+  .msg-tool {
+    background: var(--surface-3); border: 1px solid var(--border);
+    padding: 4px 10px; font-size: 9px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 6px;
+    border-left: 2px solid var(--border-bright);
+  }
+  .tool-tag { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--cost); letter-spacing: 0.06em; }
+  .tool-name { color: var(--text); }
+  .msg-divider { height: 1px; background: var(--border); }
+</style>
+</head>
+<body>
+
+<div class="title-bar">
+  <div class="title-bar-dots">
+    <div class="dot dot-r"></div>
+    <div class="dot dot-y"></div>
+    <div class="dot dot-g"></div>
+  </div>
+  <span class="title-bar-title">claude-sessions-ui — dashboard</span>
+  <span>bash</span>
+</div>
+
+<div class="back-nav">
+  <a href="index.html">cd ..</a> / 04 — Terminal
+  <span style="margin-left:auto;color:#333">dark · phosphor green · JetBrains Mono</span>
+</div>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="prompt-char">█</span>
+    <span class="brand-name">claude-sessions</span>
+    <span class="brand-ver">v2.1.0</span>
+  </div>
+  <div class="header-right">
+    <span class="update-time">@ 14:32:07</span>
+    <div class="status-model">
+      <span class="status-dot"></span> llama3.2:3b
+    </div>
+    <div class="status-live">
+      <span class="status-dot"></span> [LIVE]
+    </div>
+  </div>
+</header>
+
+<div class="stats-section">
+  <div class="stats-header">aggregate stats — last 24h</div>
+  <div class="stats-bar">
+    <div class="stat-tile">
+      <div class="stat-label">sessions</div>
+      <div class="stat-value sv-accent">12</div>
+      <div class="stat-sub">3 active</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">cost usd</div>
+      <div class="stat-value sv-cost">$3.247</div>
+      <div class="stat-sub">$18.40 all</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">out tokens</div>
+      <div class="stat-value sv-blue">248.7K</div>
+      <div class="stat-sub">1.1M in</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">cache read</div>
+      <div class="stat-value sv-cyan">1.2M</div>
+      <div class="stat-sub">340K writ</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">turns</div>
+      <div class="stat-value sv-violet">187</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">subagents</div>
+      <div class="stat-value sv-green">24</div>
+      <div class="stat-sub">spawned</div>
+    </div>
+  </div>
+</div>
+
+<div class="savings-strip">
+  ollama saved <strong style="color:#ffd700;margin:0 3px">$2.14</strong> · truncation hooks saved <strong style="color:#ffd700;margin:0 3px">$0.87</strong>
+</div>
+
+<div class="toolbar">
+  <div class="filter-group">
+    <button class="ftab active">all <span class="ftab-count">12</span></button>
+    <button class="ftab"><span style="color:#39ff14">●</span> active <span class="ftab-count">3</span></button>
+    <button class="ftab">today <span class="ftab-count">8</span></button>
+  </div>
+  <div class="toolbar-right">
+    <div class="ctrl-group">
+      <span class="ctrl-label">range</span>
+      <button class="ctrl-btn">1h</button>
+      <button class="ctrl-btn active">1d</button>
+      <button class="ctrl-btn">3d</button>
+      <button class="ctrl-btn">1w</button>
+      <button class="ctrl-btn">2w</button>
+      <button class="ctrl-btn">1m</button>
+      <button class="ctrl-btn">6m</button>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">sort</span>
+      <button class="ctrl-btn active">recent</button>
+      <button class="ctrl-btn">cost</button>
+      <button class="ctrl-btn">turns</button>
+    </div>
+  </div>
+</div>
+
+<main class="sessions-container">
+  <div class="sessions-grid">
+
+    <div class="session-card card-active">
+      <div class="card-header">
+        <div class="card-header-left">
+          <span class="sdot sdot-active"></span>
+          <span class="project-name">claude-sessions-ui</span>
+          <span class="branch-tag">main</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="time-ago">2m ago</span>
+          <span class="pid-tag">PID:47382</span>
+        </div>
+      </div>
+      <div class="card-path">marie/claude-sessions-ui</div>
+      <div class="card-title"><span class="ai-tag">✦</span>fixing statsbar css naming collision and eslint globals</div>
+      <div class="activity-row">writing frontend/eslint.config.js</div>
+      <div class="badges">
+        <span class="badge b-sonnet">sonnet</span>
+        <span class="badge b-agents">⚡ 3 sub</span>
+        <span class="badge b-turns">45 turns</span>
+        <span class="badge b-active">[active]</span>
+      </div>
+      <div class="token-bar-wrap">
+        <div class="token-bar">
+          <div class="tb-input" style="width:35%"></div>
+          <div class="tb-output" style="width:18%"></div>
+          <div class="tb-ccreate" style="width:12%"></div>
+          <div class="tb-cread" style="width:35%"></div>
+        </div>
+        <div class="token-legend">
+          <span class="tl-item"><span class="tl-dot tb-input"></span>38.7K in</span>
+          <span class="tl-item"><span class="tl-dot tb-output"></span>19.8K out</span>
+          <span class="tl-item"><span class="tl-dot tb-cread"></span>38.7K cached</span>
+        </div>
+      </div>
+      <div class="card-cost-row">
+        <div class="cost-block"><div class="cost-label">cost</div><div class="cost-value cv-cost">$0.247</div></div>
+        <div class="cost-block"><div class="cost-label">tokens</div><div class="cost-value cv-tokens">45.2K</div></div>
+        <div class="cost-block"><div class="cost-label">cached</div><div class="cost-value cv-cache">38.7K</div></div>
+      </div>
+      <div class="session-id-row">
+        <span class="session-id">a3f7c2d1…</span>
+        <span class="open-hint">open ></span>
+      </div>
+    </div>
+
+    <div class="session-card card-idle">
+      <div class="card-header">
+        <div class="card-header-left">
+          <span class="sdot sdot-idle"></span>
+          <span class="project-name">api-gateway</span>
+          <span class="branch-tag">feat/auth-refactor</span>
+        </div>
+        <span class="time-ago">1h ago</span>
+      </div>
+      <div class="card-path">work/microservices/api-gateway</div>
+      <div class="card-title">refactoring jwt middleware + session token storage for gdpr compliance</div>
+      <div class="badges">
+        <span class="badge b-opus">opus</span>
+        <span class="badge b-agents">⚡ 8 sub</span>
+        <span class="badge b-turns">112 turns</span>
+        <span class="badge b-compact">⚡ /compact</span>
+        <span class="badge b-idle">[idle]</span>
+      </div>
+      <div class="token-bar-wrap">
+        <div class="token-bar">
+          <div class="tb-input" style="width:28%"></div>
+          <div class="tb-output" style="width:22%"></div>
+          <div class="tb-ccreate" style="width:8%"></div>
+          <div class="tb-cread" style="width:42%"></div>
+        </div>
+        <div class="token-legend">
+          <span class="tl-item"><span class="tl-dot tb-input"></span>51.0K in</span>
+          <span class="tl-item"><span class="tl-dot tb-output"></span>40.1K out</span>
+          <span class="tl-item"><span class="tl-dot tb-cread"></span>76.5K cached</span>
+        </div>
+      </div>
+      <div class="card-cost-row">
+        <div class="cost-block"><div class="cost-label">cost</div><div class="cost-value cv-cost">$1.842</div></div>
+        <div class="cost-block"><div class="cost-label">tokens</div><div class="cost-value cv-tokens">182.3K</div></div>
+        <div class="cost-block"><div class="cost-label">cached</div><div class="cost-value cv-cache">76.5K</div></div>
+      </div>
+      <div class="session-id-row">
+        <span class="session-id">b8e12f4a…</span>
+        <span class="open-hint">open ></span>
+      </div>
+    </div>
+
+    <div class="session-card card-active">
+      <div class="card-header">
+        <div class="card-header-left">
+          <span class="sdot sdot-active"></span>
+          <span class="project-name">infra-terraform</span>
+          <span class="branch-tag">fix/vpc</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="time-ago">8m ago</span>
+          <span class="pid-tag">PID:51024</span>
+        </div>
+      </div>
+      <div class="card-path">work/platform/infra-terraform</div>
+      <div class="card-title">fixing vpc routing tables + security group ingress for private subnets</div>
+      <div class="activity-row">bash: terraform plan -target=module.vpc</div>
+      <div class="badges">
+        <span class="badge b-sonnet">sonnet</span>
+        <span class="badge b-agents">⚡ 5 sub</span>
+        <span class="badge b-turns">67 turns</span>
+        <span class="badge b-active">[active]</span>
+      </div>
+      <div class="token-bar-wrap">
+        <div class="token-bar">
+          <div class="tb-input" style="width:40%"></div>
+          <div class="tb-output" style="width:20%"></div>
+          <div class="tb-ccreate" style="width:10%"></div>
+          <div class="tb-cread" style="width:30%"></div>
+        </div>
+        <div class="token-legend">
+          <span class="tl-item"><span class="tl-dot tb-input"></span>26.8K in</span>
+          <span class="tl-item"><span class="tl-dot tb-output"></span>13.4K out</span>
+          <span class="tl-item"><span class="tl-dot tb-cread"></span>20.1K cached</span>
+        </div>
+      </div>
+      <div class="card-cost-row">
+        <div class="cost-block"><div class="cost-label">cost</div><div class="cost-value cv-cost">$0.583</div></div>
+        <div class="cost-block"><div class="cost-label">tokens</div><div class="cost-value cv-tokens">67.1K</div></div>
+        <div class="cost-block"><div class="cost-label">cached</div><div class="cost-value cv-cache">20.1K</div></div>
+      </div>
+      <div class="session-id-row">
+        <span class="session-id">c5d38b9f…</span>
+        <span class="open-hint">open ></span>
+      </div>
+    </div>
+
+    <div class="session-card card-idle">
+      <div class="card-header">
+        <div class="card-header-left">
+          <span class="sdot sdot-idle"></span>
+          <span class="project-name">mobile-app</span>
+          <span class="branch-tag">main</span>
+        </div>
+        <span class="time-ago">4h ago</span>
+      </div>
+      <div class="card-path">work/mobile/mobile-app</div>
+      <div class="card-title">update push notification handlers for ios 18 permission model</div>
+      <div class="badges">
+        <span class="badge b-haiku">haiku</span>
+        <span class="badge b-turns">18 turns</span>
+        <span class="badge b-idle">[idle]</span>
+      </div>
+      <div class="token-bar-wrap">
+        <div class="token-bar">
+          <div class="tb-input" style="width:50%"></div>
+          <div class="tb-output" style="width:30%"></div>
+          <div class="tb-ccreate" style="width:5%"></div>
+          <div class="tb-cread" style="width:15%"></div>
+        </div>
+        <div class="token-legend">
+          <span class="tl-item"><span class="tl-dot tb-input"></span>4.3K in</span>
+          <span class="tl-item"><span class="tl-dot tb-output"></span>2.6K out</span>
+          <span class="tl-item"><span class="tl-dot tb-cread"></span>1.3K cached</span>
+        </div>
+      </div>
+      <div class="card-cost-row">
+        <div class="cost-block"><div class="cost-label">cost</div><div class="cost-value cv-cost">$0.031</div></div>
+        <div class="cost-block"><div class="cost-label">tokens</div><div class="cost-value cv-tokens">8.7K</div></div>
+        <div class="cost-block"><div class="cost-label">cached</div><div class="cost-value cv-cache">1.3K</div></div>
+      </div>
+      <div class="session-id-row">
+        <span class="session-id">d1a94e22…</span>
+        <span class="open-hint">open ></span>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<div class="detail-backdrop">
+  <div class="detail-panel">
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">session detail</div>
+        <div class="detail-sub">a3f7c2d1… · 87 messages</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="detail-btn">↓ export</button>
+        <button class="detail-close">✕</button>
+      </div>
+    </div>
+    <div class="detail-skill-row">
+      export-as-skill
+      <select><option>global</option><option>local</option></select>
+      <button>exec</button>
+    </div>
+    <div class="detail-body">
+      <div class="msg-group">
+        <span class="msg-role user-role">you</span>
+        <div class="msg-user">
+          <span class="msg-ts">14:18:42</span>
+          fix the statsbar css naming collision — subagents tile is rendering in the wrong color.
+        </div>
+      </div>
+      <div class="msg-divider"></div>
+      <div class="msg-group">
+        <span class="msg-role">claude</span>
+        <div class="msg-assistant">
+          <span class="msg-ts">14:18:45</span>
+          i can see the issue — <code>accent: 'sub'</code> collides with the subtitle span class. renaming to <code>'agents'</code> and updating the css selector.
+        </div>
+      </div>
+      <div class="msg-tool"><span class="tool-tag">tool</span><span class="tool-name">Read</span>&nbsp;StatsBar.jsx</div>
+      <div class="msg-tool"><span class="tool-tag">result</span><span class="tool-name">Read</span>&nbsp;80 lines returned</div>
+      <div class="msg-tool"><span class="tool-tag">tool</span><span class="tool-name">Edit</span>&nbsp;StatsBar.css</div>
+      <div class="msg-tool"><span class="tool-tag">result</span><span class="tool-name">Edit</span>&nbsp;ok</div>
+      <div class="msg-group">
+        <span class="msg-role">claude</span>
+        <div class="msg-assistant">
+          <span class="msg-ts">14:18:52</span>
+          fixed. rebuilding frontend now.
+        </div>
+      </div>
+      <div class="msg-group">
+        <span class="msg-role user-role">you</span>
+        <div class="msg-user">
+          <span class="msg-ts">14:24:11</span>
+          we also need to address the reviewdog comments on the pr.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

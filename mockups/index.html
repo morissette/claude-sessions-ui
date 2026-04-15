@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Design POC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: #f9fafb;
+    color: #111827;
+    min-height: 100vh;
+    padding: 60px 40px;
+  }
+  .page-header {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+  .page-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 12px;
+  }
+  .page-title {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: #111827;
+    margin-bottom: 12px;
+  }
+  .page-sub {
+    font-size: 15px;
+    color: #6b7280;
+    max-width: 520px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .card:hover {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+    transform: translateY(-2px);
+  }
+  .card-preview {
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card-body { padding: 20px; }
+  .card-number {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #9ca3af;
+    margin-bottom: 4px;
+  }
+  .card-name {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  .card-desc {
+    font-size: 13px;
+    color: #6b7280;
+    line-height: 1.5;
+    margin-bottom: 16px;
+  }
+  .swatches {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  .card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    padding: 8px 14px;
+    background: #f3f4f6;
+    border-radius: 8px;
+    transition: background 0.12s;
+  }
+  .card:hover .card-link { background: #e5e7eb; }
+
+  /* Preview panels */
+  .p1 { background: linear-gradient(135deg, #f0f4f8 0%, #e8f4ff 100%); }
+  .p1-inner { display: flex; flex-direction: column; gap: 6px; width: 80%; }
+  .p1-bar { height: 6px; background: #00d4ff; border-radius: 3px; }
+  .p1-bar:nth-child(2) { width: 70%; background: #e2e8f0; }
+  .p1-bar:nth-child(3) { width: 85%; background: #e2e8f0; }
+  .p1-bar:nth-child(4) { width: 50%; background: #e2e8f0; }
+
+  .p2 { background: #111111; }
+  .p2-inner { display: flex; flex-direction: column; gap: 5px; width: 80%; }
+  .p2-line { height: 5px; background: #333; border-radius: 2px; }
+  .p2-line.accent { background: #ff6b35; width: 40%; }
+
+  .p3 { background: #fafaf8; border-top: 3px solid #5a7a5a; }
+  .p3-inner { display: flex; flex-direction: column; gap: 8px; width: 75%; text-align: left; }
+  .p3-head { height: 18px; background: #1c1c1c; border-radius: 0; width: 60%; }
+  .p3-line { height: 8px; background: #d4d4aa; width: 100%; }
+  .p3-line.sm { width: 70%; }
+  .p3-accent { width: 32px; height: 8px; background: #5a7a5a; }
+
+  .p4 { background: #0a0a0a; }
+  .p4-inner { font-family: 'Courier New', monospace; font-size: 11px; color: #39ff14; text-align: left; width: 80%; line-height: 1.6; }
+
+  .p5 { background: #000; }
+  .p5-inner { display: flex; flex-direction: column; gap: 10px; width: 80%; }
+  .p5-title { height: 32px; background: #fff; }
+  .p5-line { height: 3px; background: #fff; }
+  .p5-line.red { background: #ff0000; width: 30%; }
+
+  .p6 { background: linear-gradient(135deg, #080816 0%, #0e0e28 100%); }
+  .p6-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(124,106,247,0.3);
+    border-radius: 10px;
+    width: 75%;
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    backdrop-filter: blur(4px);
+  }
+  .p6-bar { height: 4px; border-radius: 2px; background: linear-gradient(90deg, #7c6af7, #00d4ff); }
+  .p6-bar.sm { width: 60%; opacity: 0.4; }
+  .p6-dot { width: 8px; height: 8px; border-radius: 50%; background: #7c6af7; box-shadow: 0 0 8px #7c6af7; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="page-eyebrow">Claude Sessions UI — Design POC</div>
+  <h1 class="page-title">Pick a direction</h1>
+  <p class="page-sub">Six distinct aesthetic explorations for the AI Assistant Dashboard. All share greyscale foundations with deliberate color pops.</p>
+</div>
+
+<div class="grid">
+
+  <a href="ui-1-slate.html" class="card">
+    <div class="card-preview p1">
+      <div class="p1-inner">
+        <div class="p1-bar"></div>
+        <div class="p1-bar"></div>
+        <div class="p1-bar"></div>
+        <div class="p1-bar"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-number">01</div>
+      <div class="card-name">Slate</div>
+      <div class="card-desc">Light surface, electric cyan accent. Bloomberg Terminal meets Linear — data-first, zero decoration.</div>
+      <div class="swatches">
+        <div class="swatch" style="background:#ffffff"></div>
+        <div class="swatch" style="background:#1a1a1a"></div>
+        <div class="swatch" style="background:#00d4ff"></div>
+        <div class="swatch" style="background:#e2e8f0"></div>
+      </div>
+      <span class="card-link">Open mockup →</span>
+    </div>
+  </a>
+
+  <a href="ui-2-carbon.html" class="card">
+    <div class="card-preview p2">
+      <div class="p2-inner">
+        <div class="p2-line accent"></div>
+        <div class="p2-line" style="width:90%"></div>
+        <div class="p2-line" style="width:70%"></div>
+        <div class="p2-line accent" style="width:55%"></div>
+        <div class="p2-line" style="width:80%"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-number">02</div>
+      <div class="card-name">Carbon</div>
+      <div class="card-desc">Deep charcoal, geometric grid, construction orange pops. Grafana meets VS Code — pure monitoring tool.</div>
+      <div class="swatches">
+        <div class="swatch" style="background:#111111"></div>
+        <div class="swatch" style="background:#1c1c1c; border-color:#333"></div>
+        <div class="swatch" style="background:#ff6b35"></div>
+        <div class="swatch" style="background:#f5f5f5"></div>
+      </div>
+      <span class="card-link">Open mockup →</span>
+    </div>
+  </a>
+
+  <a href="ui-3-chalk.html" class="card">
+    <div class="card-preview p3">
+      <div class="p3-inner">
+        <div class="p3-head"></div>
+        <div class="p3-line"></div>
+        <div class="p3-line sm"></div>
+        <div class="p3-accent"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-number">03</div>
+      <div class="card-name">Chalk</div>
+      <div class="card-desc">Near-white editorial surface, serif headings, muted sage accent. The Economist meets Notion.</div>
+      <div class="swatches">
+        <div class="swatch" style="background:#fafaf8; border-color:#d4d4aa"></div>
+        <div class="swatch" style="background:#1c1c1c"></div>
+        <div class="swatch" style="background:#5a7a5a"></div>
+        <div class="swatch" style="background:#d4d4aa"></div>
+      </div>
+      <span class="card-link">Open mockup →</span>
+    </div>
+  </a>
+
+  <a href="ui-4-terminal.html" class="card">
+    <div class="card-preview p4">
+      <div class="p4-inner">
+        <div>&gt;_ claude-sessions-ui</div>
+        <div style="color:#555">─────────────────</div>
+        <div>[LIVE] 3 active</div>
+        <div style="color:#555">cost: <span style="color:#39ff14">$3.247</span></div>
+        <div>turns: 187</div>
+        <div style="color:#555">subagents: 24</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-number">04</div>
+      <div class="card-name">Terminal</div>
+      <div class="card-desc">100% monospace, phosphor green on dark charcoal. Htop meets btm — native terminal aesthetic.</div>
+      <div class="swatches">
+        <div class="swatch" style="background:#0a0a0a; border-color:#222"></div>
+        <div class="swatch" style="background:#1a1a1a; border-color:#333"></div>
+        <div class="swatch" style="background:#39ff14"></div>
+        <div class="swatch" style="background:#f5f5f5"></div>
+      </div>
+      <span class="card-link">Open mockup →</span>
+    </div>
+  </a>
+
+  <a href="ui-5-void.html" class="card">
+    <div class="card-preview p5">
+      <div class="p5-inner">
+        <div class="p5-title"></div>
+        <div class="p5-line"></div>
+        <div class="p5-line red"></div>
+        <div class="p5-line" style="width:60%"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-number">05</div>
+      <div class="card-name">Void</div>
+      <div class="card-desc">Pure black, stark white, hard red. No border-radius. No shadows. Dieter Rams meets brutalist web.</div>
+      <div class="swatches">
+        <div class="swatch" style="background:#000000; border-color:#333"></div>
+        <div class="swatch" style="background:#ffffff; border-color:#ddd"></div>
+        <div class="swatch" style="background:#ff0000"></div>
+        <div class="swatch" style="background:#888888"></div>
+      </div>
+      <span class="card-link">Open mockup →</span>
+    </div>
+  </a>
+
+  <a href="ui-6-aurora.html" class="card">
+    <div class="card-preview p6">
+      <div class="p6-card">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="p6-dot"></div>
+          <div style="height:6px;flex:1;background:rgba(255,255,255,0.1);border-radius:3px"></div>
+        </div>
+        <div class="p6-bar"></div>
+        <div class="p6-bar sm"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-number">06</div>
+      <div class="card-name">Aurora</div>
+      <div class="card-desc">Dark with purple→cyan gradient accents, glassmorphism cards. Raycast meets Linear — refined, not garish.</div>
+      <div class="swatches">
+        <div class="swatch" style="background:#080816; border-color:#222"></div>
+        <div class="swatch" style="background:#7c6af7"></div>
+        <div class="swatch" style="background:#00d4ff"></div>
+        <div class="swatch" style="background:linear-gradient(90deg,#7c6af7,#00d4ff)"></div>
+      </div>
+      <span class="card-link">Open mockup →</span>
+    </div>
+  </a>
+
+</div>
+
+</body>
+</html>

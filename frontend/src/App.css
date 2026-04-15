@@ -11,10 +11,9 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  height: 60px;
+  height: 56px;
   border-bottom: 1px solid var(--border);
-  background: rgba(7, 7, 26, 0.85);
-  backdrop-filter: blur(12px);
+  background: var(--surface);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -30,16 +29,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   background: var(--accent-dim);
-  border: 1px solid rgba(124, 106, 247, 0.3);
-  border-radius: 8px;
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 6px;
   color: var(--accent);
 }
 
 .brand-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.01em;
@@ -48,40 +47,40 @@
 .header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .last-update {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 
 .conn-badge {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 500;
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: 20px;
   border: 1px solid;
 }
 
 .conn-live {
   color: var(--active);
-  border-color: rgba(16, 232, 138, 0.25);
-  background: rgba(16, 232, 138, 0.06);
+  border-color: rgba(16, 185, 129, 0.3);
+  background: var(--active-dim);
 }
 
 .conn-off {
-  color: var(--text-muted);
+  color: var(--text-dim);
   border-color: var(--border);
   background: transparent;
 }
 
 .conn-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
 }
@@ -101,16 +100,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px 0;
+  padding: 12px 24px;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .filter-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: var(--surface);
+  gap: 2px;
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 3px;
@@ -120,59 +121,61 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
-  border-radius: 4px;
+  padding: 4px 11px;
+  border-radius: 3px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.12s;
+  font-family: inherit;
 }
 
 .ftab:hover { color: var(--text); }
 
 .ftab-active {
-  background: var(--surface-3);
-  color: var(--text);
+  background: var(--accent);
+  color: #fff;
 }
 
 .ftab-count {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  background: var(--surface-3);
-  color: var(--text-muted);
-  padding: 1px 6px;
-  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.10);
+  color: inherit;
+  padding: 0 5px;
+  border-radius: 8px;
 }
 
 .ftab-active .ftab-count {
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .active-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--active);
 }
 
-.sort-controls {
+.sort-controls, .time-range-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .sort-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-right: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-right: 3px;
+  font-weight: 500;
 }
 
 .sort-btn {
-  padding: 5px 10px;
+  padding: 4px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -180,7 +183,8 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.12s;
+  font-family: inherit;
 }
 
 .sort-btn:hover {
@@ -191,7 +195,7 @@
 .sort-active {
   color: var(--accent);
   background: var(--accent-dim);
-  border-color: rgba(124, 106, 247, 0.2);
+  border-color: rgba(0, 212, 255, 0.25);
 }
 
 /* ── Sessions grid ───────────────────────────────────────── */
@@ -204,7 +208,7 @@
 .sessions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 /* ── Empty state ─────────────────────────────────────────── */
@@ -220,13 +224,13 @@
 }
 
 .empty-icon {
-  font-size: 40px;
+  font-size: 36px;
   color: var(--text-dim);
   margin-bottom: 8px;
 }
 
 .empty-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-muted);
 }
