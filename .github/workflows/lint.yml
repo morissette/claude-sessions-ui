@@ -15,7 +15,7 @@ jobs:
       - name: Install ruff
         run: uv tool install ruff
       - name: Run ruff
-        run: ruff check --output-format github backend.py
+        run: ruff check --output-format github backend/
 
   eslint:
     name: ESLint (Frontend)

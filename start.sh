@@ -23,4 +23,4 @@ echo "  Prometheus metrics: http://localhost:8765/metrics"
 echo "  Logs: ~/.claude/claude-sessions-ui.log"
 echo ""
 
-python3 backend.py
+python3 -m backend.main

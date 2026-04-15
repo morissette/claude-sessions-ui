@@ -16,7 +16,7 @@ echo "→ Backend  → http://localhost:8765"
 echo "→ Frontend → http://localhost:5173"
 echo ""
 
-python3 -m uvicorn backend:app --host 127.0.0.1 --port 8765 --reload &
+python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8765 --reload &
 BACKEND_PID=$!
 
 (cd frontend && npm run dev) &
