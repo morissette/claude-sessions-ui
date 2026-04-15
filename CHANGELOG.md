@@ -1,47 +1,90 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file. Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+---
 
-### Added
-
-- **Transcript export** — new `GET /api/sessions/{id}/transcript` endpoint renders the full session as a downloadable Markdown file (`claude-session-{id}.md`). Accessible via the "↓ Transcript" button in the session detail overlay.
-- **Export as skill moved to detail overlay** — skill export controls (scope selector + export button) now live in the session detail panel, keeping cards clean and focused.
-- **"view details →" hover hint on cards** — a subtle affordance appears on hover to signal that cards are clickable.
+## [2.2.0] — 2026-04-15
 
 ### Changed
 
-- **Session detail overlay redesign** — panel background lifted from near-black (`#0d0d24`) to a readable slate-blue (`#1e1e3c`); backdrop blurs the app content behind it. Messages now show role labels ("You" / "Claude"), speaker-change dividers, and a smooth spring slide-in animation. Tool and result blocks have amber/green left-accent borders with pill-shaped type badges.
+- **Slate design system** — complete light-theme overhaul replacing the deep purple-navy dark theme. New palette: `#f8f9fa` background, white surface, electric cyan (`#00d4ff`) as the single accent colour. Semantic stat colours: amber for cost, indigo for tokens, teal for cache reads, violet for turns, green for active/subagents.
+- **Typography** — switched from Inter + JetBrains Mono to DM Sans (body) + DM Mono (values/code). Tighter letter-spacing and improved heading hierarchy throughout.
+- **Header** — white surface with 1px bottom border; no backdrop blur or dark sticky bar.
+- **Toolbar** — white background, active filter tab highlighted with solid cyan fill; active sort button uses cyan text + tinted background.
+- **Session cards** — white surface, `border-top: 2px` accent stripe (green for active, neutral for idle). Branch tag uses cyan tint. Session ID row uses negative-margin full-bleed grey strip.
+- **StatsBar tiles** — white tiles separated by 1px right borders; each stat type has its own semantic accent colour.
+- **SessionDetail overlay** — lighter backdrop (`rgba(0,0,0,0.25)`), white panel. User bubbles get cyan tint; assistant bubbles get green left-accent border; tool/result blocks get amber/green accents respectively.
+- **SavingsBanner** — green-tinted background on light surface instead of dark purple strip.
+
+---
+
+## [2.1.0] — 2026-04-10
+
+### Added
+
+- **Transcript export** — `GET /api/sessions/{id}/transcript` renders the full session as a downloadable Markdown file (`claude-session-{id}.md`). Accessible via the "↓ Transcript" button in the session detail overlay.
+- **Export as skill** — `POST /api/sessions/{id}/export-skill` creates a Claude Code skill file from a session. Scope selector (global / local) and export button live in the session detail panel.
+- **"view details →" hover hint on cards** — subtle affordance appears on card hover to signal clickability.
+
+### Changed
+
+- **Session detail overlay** — panel background lifted from near-black (`#0d0d24`) to readable slate-blue (`#1e1e3c`); backdrop blurs app content behind it. Messages show role labels ("You" / "Claude"), speaker-change dividers, and a smooth spring slide-in animation. Tool and result blocks have amber/green left-accent borders with pill-shaped type badges.
 - **Summarize button** now calls `e.stopPropagation()` so clicking it no longer also opens the detail overlay.
 - **Export as skill removed from session cards** — moved into the detail overlay to reduce card height and visual noise.
 
 ### Fixed
 
-- **StatsBar Subagents tile had no accent color** — CSS typo `.stat-sub_` (trailing underscore) corrected to `.stat-sub`; the value now renders in green.
+- **StatsBar Subagents tile had no accent colour** — CSS typo `.stat-sub_` (trailing underscore) corrected to `.stat-sub`; value now renders in green.
 - **Subagents showed `—` when zero** — now renders `0` for consistency with other stat tiles.
 - **`SessionCard.css` orphaned declarations** — missing `{` after `.card-title` left `font-size`, `color`, and `-webkit-line-clamp` detached from the rule; merged back in.
 
 ---
 
-- **SQLite historical storage** — sessions are now persisted to `~/.claude/claude-sessions-ui.db`. On startup, all historical JSONL data is backfilled asynchronously. The DB is a derived cache; deleting it and restarting rebuilds from JSONL.
-- **Time range filtering** — dashboard now supports 7 time windows: `1h`, `1d`, `3d`, `1w`, `2w`, `1m`, `6m`. Short ranges (≤24h) use the existing live JSONL path; longer ranges query SQLite.
-- **Range selector UI** — new "Range" segmented control in the toolbar. Switching ranges reconnects the WebSocket with the new range parameter. The "Cost (today)" tile in `StatsBar` updates its label dynamically to reflect the selected range.
+## [2.0.0] — 2026-04-05
+
+### Added
+
+- **SQLite historical storage** — sessions are persisted to `~/.claude/claude-sessions-ui.db`. On startup, all historical JSONL data is backfilled asynchronously. The DB is a derived cache; delete it and restart to rebuild from JSONL.
+- **Time range filtering** — 7 time windows: `1h`, `1d`, `3d`, `1w`, `2w`, `1m`, `6m`. Short ranges (≤24h) use the live JSONL path; longer ranges query SQLite.
+- **Range selector UI** — "Range" segmented control in the toolbar. Switching ranges reconnects the WebSocket with the new range parameter. The "Cost" tile in StatsBar updates its label dynamically to reflect the selected range.
 - **`GET /api/db/status`** — diagnostic endpoint reporting total stored sessions, oldest/newest timestamps, and DB path.
 - **Docker support** — multi-stage `Dockerfile` (Node 20 → Python 3.11), `docker-compose.yml` (mounts `~/.claude/` as a volume, connects to host Ollama via `OLLAMA_URL` env var), `.dockerignore`, and `docker.sh` convenience wrapper (`build`, `up`, `down`, `logs`).
-- **`OLLAMA_URL` env var** — overrides the hardcoded `http://localhost:11434` default; useful for Docker deployments.
-- **Branch protection** — `main` now requires a pull request with 1 approving review before merge; force pushes and branch deletion are disabled.
+- **`OLLAMA_URL` env var** — overrides the hardcoded `http://localhost:11434` default; required for Docker deployments pointing at host Ollama.
 
 ### Changed
 
-- `GET /api/sessions` now accepts an optional `?time_range=` query parameter (default `1d`) and includes a `time_range` field in the response.
-- `WebSocket /ws` now accepts an optional `?time_range=` query parameter (default `1d`) and includes `time_range` in each broadcast. Historical ranges (`3d`+) poll every 10 seconds instead of every 2 seconds.
-- `compute_global_stats()` now accepts a `time_range_hours` parameter; the "cost today" value reflects the selected range window rather than always being midnight-to-now.
+- `GET /api/sessions` now accepts an optional `?time_range=` query parameter (default `1d`); response includes a `time_range` field.
+- `WS /ws` now accepts an optional `?time_range=` query parameter (default `1d`); historical ranges (`3d`+) poll every 10 seconds instead of every 2 seconds.
+- `compute_global_stats()` now accepts a `time_range_hours` parameter so the "cost" value reflects the selected window.
 - `@app.on_event("startup")` replaced with the modern FastAPI `lifespan` context manager.
 
 ### Tests
 
 - 17 new backend tests covering `init_db`, `upsert_sessions_to_db`, `get_sessions_from_db`, `get_sessions_for_range`, and `compute_global_stats` with time range. Total: 61 backend tests.
-- Updated `StatsBar.test.jsx` to pass `timeRange` prop and added 4 new label tests.
-- New `App.test.jsx` covering the time range selector (renders all 7 buttons, default active state, click behavior).
-- Total frontend tests: 50.
+- Updated `StatsBar.test.jsx` to pass `timeRange` prop; 4 new label tests.
+- New `App.test.jsx` covering the time range selector (all 7 buttons, default active state, click behaviour). Total frontend tests: 50.
+
+---
+
+## [1.1.0] — 2026-03-20
+
+### Added
+
+- **Savings analytics** — `SavingsBanner` component tracks estimated cost savings from PR-skip Ollama summaries and tool output truncation.
+- **Prometheus metrics** — `GET /metrics` exports 10 gauges covering session counts, token totals, cache usage, and cost.
+- **Subagent tracking** — backend identifies subagent activity within sessions; cards show coloured subagent chips with counts.
+- **Session card summaries** — AI-generated Ollama summary text (Llama 3.2) shown inline on cards; "Summarize" button triggers on demand.
+
+---
+
+## [1.0.0] — 2026-03-01
+
+### Added
+
+- Initial release: real-time WebSocket dashboard reading `~/.claude/projects/` JSONL files.
+- Session cards with token/cost display, model badge, active/idle status.
+- StatsBar with aggregate totals: sessions, cost, output tokens, cache reads, turns, subagents.
+- Filter tabs (All / Active / Today) and sort buttons (Recent / Cost / Turns).
+- Ollama integration (Llama 3.2) for on-demand session summarisation; graceful degradation when unavailable.
+- `GET /api/sessions` and `WS /ws` endpoints.

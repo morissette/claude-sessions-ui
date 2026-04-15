@@ -12,17 +12,21 @@ A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, co
 - **Live session monitoring** — WebSocket-based real-time updates every 2 seconds
 - **Token & cost tracking** — Input, output, cache creation, and cache read tokens with cost estimates per model
 - **Session filtering & sorting** — Filter by active/today/all; sort by activity, cost, or turns
+- **Session detail overlay** — Paginated message viewer with tool blocks, thinking blocks, and transcript export
 - **AI session summaries** — Local Ollama (Llama 3.2) summarizes sessions on demand
+- **Export as skill** — Create a Claude Code skill file from any session (global or local scope)
 - **Savings analytics** — Tracks cost savings from PR-skip summaries and tool output truncation
 - **Prometheus metrics** — Exports session/token/cost metrics at `/metrics`
 - **Subagent tracking** — Identifies and labels subagent activity within sessions
+- **Historical data** — SQLite-backed store for time ranges from 1h up to 6m; startup backfill on launch
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, Vite 5 |
+| Frontend | React 18, Vite 5, DM Sans + DM Mono |
 | Backend | Python 3.11, FastAPI, Uvicorn |
+| Database | SQLite (derived cache — safe to delete and rebuild) |
 | Real-time | WebSockets |
 | Optional AI | Ollama (Llama 3.2) |
 | Metrics | Prometheus |
@@ -58,18 +62,56 @@ cd frontend && npm install && cd ..
 ```
 - App: http://localhost:8765
 
+## Docker
+
+```bash
+# Build the image
+./docker.sh build
+
+# Start at http://localhost:8765
+./docker.sh up
+
+# Stop
+./docker.sh down
+
+# Tail logs
+./docker.sh logs
+```
+
+Docker mounts `~/.claude/` into the container so the dashboard reads your real session files. Point Ollama at the host by setting `OLLAMA_URL` in `docker-compose.yml`:
+
+```yaml
+environment:
+  - OLLAMA_URL=http://host.docker.internal:11434
+```
+
 ## API
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/sessions` | All sessions with stats |
-| `GET /api/ollama` | Ollama availability check |
-| `POST /api/sessions/{id}/summarize` | Generate AI summary for session |
-| `GET /metrics` | Prometheus metrics |
-| `WS /ws` | WebSocket stream (updates every 2s) |
+| `GET /api/sessions` | All sessions with stats for the given `time_range` |
+| `GET /api/sessions/{id}/detail` | Paginated message thread for a session |
+| `GET /api/sessions/{id}/transcript` | Full session as Markdown download |
+| `POST /api/sessions/{id}/summarize` | Generate Ollama AI summary |
+| `POST /api/sessions/{id}/export-skill` | Export session as a Claude Code skill file |
+| `GET /api/ollama` | Ollama availability and model status |
+| `GET /metrics` | Prometheus metrics (10 gauges) |
+| `WS /ws?time_range=1d` | WebSocket stream; updates every 2s (live) or 10s (historical) |
+
+## Time ranges
+
+| Range | Data source |
+|---|---|
+| `1h`, `1d` | Live JSONL parse (fast path) |
+| `3d`, `1w`, `2w`, `1m`, `6m` | SQLite historical store |
+
+The SQLite database (`~/.claude/claude-sessions-ui.db`) is a derived cache. Delete it and restart to rebuild from JSONL.
 
 ## Data Sources
 
-- Session files: `~/.claude/projects/`
-- Session summaries cache: `~/.claude/session_summaries/`
-- Application log: `~/.claude/claude-sessions-ui.log`
+| Path | Purpose |
+|---|---|
+| `~/.claude/projects/` | Session JSONL files (source of truth) |
+| `~/.claude/claude-sessions-ui.db` | SQLite historical cache |
+| `~/.claude/session_summaries/` | Ollama summary cache |
+| `~/.claude/claude-sessions-ui.log` | Runtime logs |
