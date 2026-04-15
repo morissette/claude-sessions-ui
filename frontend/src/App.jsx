@@ -168,7 +168,7 @@ export default function App() {
         </div>
       </header>
 
-      <StatsBar stats={stats} timeRange={timeRange} />
+      <StatsBar stats={stats} timeRange={timeRange} sessions={sorted} />
       <SavingsBanner savings={data.savings} truncation={data.truncation} ollama={ollama} />
 
       <div className="toolbar">
