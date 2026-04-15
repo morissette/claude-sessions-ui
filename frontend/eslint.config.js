@@ -28,6 +28,7 @@ export default [
         fetch: "readonly",
         URL: "readonly",
         AbortController: "readonly",
+        localStorage: "readonly",
       },
     },
     settings: {

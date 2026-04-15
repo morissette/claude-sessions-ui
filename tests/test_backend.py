@@ -543,6 +543,31 @@ class TestGetSessionsFromDb:
         result = backend.get_sessions_from_db(hours=24)
         assert result == []
 
+    def test_get_sessions_from_db_no_cutoff(self, tmp_path, monkeypatch):
+        """Calling with no hours/start/end should return all rows (no WHERE clause)."""
+        recent = _make_session("recent", last_active=datetime.now(UTC).isoformat())
+        old = _make_session("old", last_active="2000-01-01T00:00:00+00:00")
+        self._init_with_sessions(tmp_path, monkeypatch, [recent, old])
+        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        result = backend.get_sessions_from_db()
+        ids = [s["session_id"] for s in result]
+        assert "recent" in ids
+        assert "old" in ids
+
+    def test_get_sessions_from_db_custom_start_end(self, tmp_path, monkeypatch):
+        """Custom start/end filters by last_active range."""
+        in_range = _make_session("in_range", last_active="2025-06-15T12:00:00+00:00")
+        out_range = _make_session("out_range", last_active="2025-01-01T00:00:00+00:00")
+        self._init_with_sessions(tmp_path, monkeypatch, [in_range, out_range])
+        monkeypatch.setattr(backend, "get_running_claude_processes", lambda: {})
+        result = backend.get_sessions_from_db(
+            start="2025-06-01T00:00:00+00:00",
+            end="2025-06-30T23:59:59+00:00",
+        )
+        ids = [s["session_id"] for s in result]
+        assert "in_range" in ids
+        assert "out_range" not in ids
+
 
 # ─── get_sessions_for_range ───────────────────────────────────────────────────
 
@@ -551,7 +576,7 @@ class TestGetSessionsForRange:
     def test_short_range_uses_jsonl_path(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("1h")
         assert "jsonl" in called
         assert "db" not in called
@@ -559,7 +584,7 @@ class TestGetSessionsForRange:
     def test_1d_uses_jsonl_path(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("1d")
         assert "jsonl" in called
         assert "db" not in called
@@ -567,7 +592,7 @@ class TestGetSessionsForRange:
     def test_long_range_uses_db_path(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("3d")
         assert "db" in called
         assert "jsonl" not in called
@@ -575,15 +600,37 @@ class TestGetSessionsForRange:
     def test_invalid_range_falls_back_to_1d(self, monkeypatch):
         called = {}
         monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
-        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours: called.setdefault("db", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
         backend.get_sessions_for_range("bogus")
         assert "jsonl" in called
         assert called["jsonl"] == 24
 
     def test_all_valid_ranges_map_to_known_hours(self):
         for key, hours in backend.TIME_RANGE_HOURS.items():
-            assert isinstance(hours, int)
-            assert hours > 0
+            if key == "all":
+                assert hours is None
+            else:
+                assert isinstance(hours, int)
+                assert hours > 0
+
+    def test_time_range_all(self):
+        assert backend.TIME_RANGE_HOURS["all"] is None
+
+    def test_all_range_uses_db_path(self, monkeypatch):
+        called = {}
+        monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", hours) or [])
+        backend.get_sessions_for_range("all")
+        assert "db" in called
+        assert "jsonl" not in called
+
+    def test_custom_range_uses_db_path(self, monkeypatch):
+        called = {}
+        monkeypatch.setattr(backend, "get_all_sessions", lambda hours=24: called.setdefault("jsonl", hours) or [])
+        monkeypatch.setattr(backend, "get_sessions_from_db", lambda hours=None, start=None, end=None: called.setdefault("db", (start, end)) or [])
+        backend.get_sessions_for_range("1d", start="2025-01-01T00:00:00Z", end="2025-01-07T23:59:59Z")
+        assert "db" in called
+        assert "jsonl" not in called
 
 
 # ─── compute_global_stats with time_range_hours ───────────────────────────────
@@ -899,3 +946,87 @@ def test_search_empty_query(tmp_path, monkeypatch):
     data = resp.json()
     assert data["results"] == []
     assert data["total"] == 0
+
+
+# ─── compute_project_stats ────────────────────────────────────────────────────
+
+
+def test_compute_project_stats_groups_correctly():
+    sessions = [
+        {
+            "project_name": "proj-a",
+            "project_path": "/proj-a",
+            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100, "input_tokens": 60, "output_tokens": 40},
+            "model": "claude-sonnet-4-6",
+            "started_at": "2026-04-01T00:00:00",
+            "last_active": "2026-04-01T01:00:00",
+        },
+        {
+            "project_name": "proj-a",
+            "project_path": "/proj-a",
+            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200, "input_tokens": 120, "output_tokens": 80},
+            "model": "claude-opus-4-6",
+            "started_at": "2026-04-01T02:00:00",
+            "last_active": "2026-04-01T03:00:00",
+        },
+        {
+            "project_name": "proj-b",
+            "project_path": "/proj-b",
+            "stats": {"estimated_cost_usd": 0.5, "total_tokens": 50, "input_tokens": 30, "output_tokens": 20},
+            "model": "claude-haiku-4-5-20251001",
+            "started_at": "2026-04-01T00:00:00",
+            "last_active": "2026-04-01T00:30:00",
+        },
+    ]
+    result = backend.compute_project_stats(sessions)
+    assert len(result) == 2
+    proj_a = next(p for p in result if p["project_name"] == "proj-a")
+    assert proj_a["session_count"] == 2
+    assert abs(proj_a["total_cost_usd"] - 3.0) < 0.001
+    assert proj_a["first_session"] == "2026-04-01T00:00:00"
+    assert proj_a["last_session"] == "2026-04-01T03:00:00"
+
+
+def test_compute_project_stats_empty():
+    assert backend.compute_project_stats([]) == []
+
+
+def test_compute_project_stats_mixed_timestamps():
+    """Groups correctly when sessions mix Z and +00:00 timestamp suffixes."""
+    sessions = [
+        {
+            "project_path": "/proj-a",
+            "project_name": "proj-a",
+            "stats": {"estimated_cost_usd": 1.0, "total_tokens": 100},
+            "model": "claude-sonnet-4-6",
+            "started_at": "2026-04-01T00:00:00Z",
+            "last_active": "2026-04-01T01:00:00+00:00",
+        },
+        {
+            "project_path": "/proj-a",
+            "project_name": "proj-a",
+            "stats": {"estimated_cost_usd": 2.0, "total_tokens": 200},
+            "model": "claude-opus-4-6",
+            "started_at": "2026-04-01T02:00:00+00:00",
+            "last_active": "2026-04-01T03:00:00Z",
+        },
+    ]
+    result = backend.compute_project_stats(sessions)
+    assert len(result) == 1
+    p = result[0]
+    # first_session must be <= last_session after normalizing Z vs +00:00
+    assert p["first_session"].replace("Z", "+00:00") <= p["last_session"].replace("Z", "+00:00")
+
+
+def test_api_projects_returns_list(tmp_path, monkeypatch):
+    """GET /api/projects returns a JSON list."""
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+    (tmp_path / "projects").mkdir()
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/projects?time_range=1d")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)

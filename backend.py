@@ -70,14 +70,15 @@ CLAUDE_DIR = Path.home() / ".claude" / "projects"
 DB_PATH = Path.home() / ".claude" / "claude-sessions-ui.db"
 LIVE_HOURS = 24  # Use JSONL for this window; SQLite for everything older
 
-TIME_RANGE_HOURS: dict[str, int] = {
-    "1h": 1,
-    "1d": 24,
-    "3d": 72,
-    "1w": 168,
-    "2w": 336,
-    "1m": 720,
-    "6m": 4320,
+TIME_RANGE_HOURS: dict[str, int | None] = {
+    "1h":  1,
+    "1d":  24,
+    "3d":  72,
+    "1w":  168,
+    "2w":  336,
+    "1m":  720,
+    "6m":  4320,
+    "all": None,   # None = no cutoff
 }
 
 SUMMARIES_DIR = Path.home() / ".claude" / "session_summaries"
@@ -266,11 +267,30 @@ def upsert_sessions_to_db(sessions: list[dict]) -> None:
         _db_conn.commit()
 
 
-def get_sessions_from_db(hours: int) -> list[dict]:
+def get_sessions_from_db(
+    hours: int | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> list[dict]:
     """Return sessions from SQLite for time ranges beyond LIVE_HOURS."""
     if _db_conn is None:
         return []
-    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    conditions = []
+    params = []
+
+    if start:
+        conditions.append("last_active >= ?")
+        params.append(start)
+    if end:
+        conditions.append("last_active <= ?")
+        params.append(end)
+    if hours is not None and not start and not end:
+        cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+        conditions.append("last_active >= ?")
+        params.append(cutoff)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
     processes = get_running_claude_processes()
     session_pid: dict[str, int] = {
         info["session_id"]: pid
@@ -279,8 +299,8 @@ def get_sessions_from_db(hours: int) -> list[dict]:
     }
     with _db_lock:
         cur = _db_conn.execute(
-            "SELECT * FROM sessions WHERE last_active >= ? ORDER BY last_active DESC",
-            (cutoff,),
+            f"SELECT * FROM sessions {where} ORDER BY last_active DESC",
+            params,
         )
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
@@ -322,9 +342,23 @@ def get_sessions_from_db(hours: int) -> list[dict]:
     return sessions
 
 
-def get_sessions_for_range(time_range: str) -> list[dict]:
+def get_sessions_for_range(
+    time_range: str,
+    start: str | None = None,
+    end: str | None = None,
+) -> list[dict]:
     """Dispatch to JSONL (short ranges) or SQLite (historical ranges)."""
     hours = TIME_RANGE_HOURS.get(time_range, 24)
+
+    # Custom range always routes to SQLite
+    if start or end:
+        return get_sessions_from_db(start=start, end=end)
+
+    # "all" routes to SQLite with no cutoff
+    if hours is None:
+        return get_sessions_from_db()
+
+    # Existing routing logic unchanged
     if hours <= LIVE_HOURS:
         return get_all_sessions(hours=hours)
     return get_sessions_from_db(hours=hours)
@@ -772,6 +806,60 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
 
 
 # ─── Session aggregation ─────────────────────────────────────────────────────
+
+def _norm_ts(ts: str | None) -> str:
+    """Normalize ISO timestamp to +00:00 format for lexicographic comparison.
+
+    Handles the mix of Z-suffix and +00:00-suffix timestamps that appear in
+    JSONL session files, ensuring min/max comparisons work correctly.
+    """
+    if not ts:
+        return ""
+    return ts.replace("Z", "+00:00")
+
+
+def compute_project_stats(sessions: list[dict]) -> list[dict]:
+    # Key by project_path (falls back to project_name) so distinct projects
+    # that share a display name are not incorrectly merged.
+    projects: dict[str, dict] = {}
+    for s in sessions:
+        name = s.get("project_name") or "unknown"
+        path = s.get("project_path", "")
+        key = path or name
+        if key not in projects:
+            projects[key] = {
+                "project_name": name,
+                "project_path": path,
+                "session_count": 0,
+                "total_cost_usd": 0.0,
+                "total_tokens": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "models": set(),
+                "first_session": s.get("started_at"),
+                "last_session": s.get("last_active"),
+            }
+        p = projects[key]
+        p["session_count"] += 1
+        stats = s.get("stats", {})
+        p["total_cost_usd"] += stats.get("estimated_cost_usd", 0.0)
+        p["total_tokens"] += stats.get("total_tokens", 0)
+        p["total_input_tokens"] += stats.get("input_tokens", 0)
+        p["total_output_tokens"] += stats.get("output_tokens", 0)
+        p["models"].add(s.get("model", "unknown"))
+        started = s.get("started_at")
+        active = s.get("last_active")
+        # Normalize timestamps before comparing to handle Z vs +00:00 suffix mix
+        if started and p["first_session"] and _norm_ts(started) < _norm_ts(p["first_session"]):
+            p["first_session"] = started
+        if active and p["last_session"] and _norm_ts(active) > _norm_ts(p["last_session"]):
+            p["last_session"] = active
+
+    for p in projects.values():
+        p["models"] = sorted(p["models"])
+
+    return sorted(projects.values(), key=lambda p: p["total_cost_usd"], reverse=True)
+
 
 def get_all_sessions(hours: int | None = 24) -> list[dict]:
     if not CLAUDE_DIR.exists():
@@ -1286,13 +1374,13 @@ async def list_sessions(time_range: str = "1d"):
         time_range = "1d"
     hours = TIME_RANGE_HOURS[time_range]
     sess = get_sessions_for_range(time_range)
-    stats = compute_global_stats(sess, hours)
+    stats = compute_global_stats(sess, hours if hours is not None else LIVE_HOURS)
     _update_prometheus(stats)
     # Only upsert when sessions came from JSONL (live path); historical DB reads
     # don't need to be written back and would add unnecessary write contention.
     # Reuse a single in-flight task to avoid queuing unbounded concurrent upserts.
     global _list_upsert_task
-    if hours <= LIVE_HOURS and (_list_upsert_task is None or _list_upsert_task.done()):
+    if hours is not None and hours <= LIVE_HOURS and (_list_upsert_task is None or _list_upsert_task.done()):
         _list_upsert_task = asyncio.create_task(_upsert_in_background(sess))
     return {
         "sessions": sess,
@@ -1327,6 +1415,14 @@ async def search_sessions(q: str = "", time_range: str = "1d", limit: int = 20):
         "total": len(results),
         "index_ready": not _fts_backfill_running,
     }
+
+
+@app.get("/api/projects")
+async def get_projects(time_range: str = "1d"):
+    if time_range not in TIME_RANGE_HOURS:
+        time_range = "1d"
+    sessions = get_sessions_for_range(time_range)
+    return compute_project_stats(sessions)
 
 
 @app.get("/api/db/status")
@@ -1525,7 +1621,27 @@ _list_upsert_task: asyncio.Task | None = None
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
+async def websocket_endpoint(
+    ws: WebSocket,
+    time_range: str = "1d",
+    start: str | None = None,
+    end: str | None = None,
+    project: str | None = None,
+):
+    # Validate custom date params before accepting
+    if start:
+        try:
+            datetime.fromisoformat(start)
+        except ValueError:
+            await ws.close(code=1008, reason="Invalid start date")
+            return
+    if end:
+        try:
+            datetime.fromisoformat(end)
+        except ValueError:
+            await ws.close(code=1008, reason="Invalid end date")
+            return
+
     if time_range not in TIME_RANGE_HOURS:
         time_range = "1d"
     await ws.accept()
@@ -1533,13 +1649,15 @@ async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
     upsert_task: asyncio.Task | None = None  # per-connection handle prevents backlog buildup
     try:
         while True:
-            sess = get_sessions_for_range(time_range)
-            hours = TIME_RANGE_HOURS[time_range]
-            stats = compute_global_stats(sess, hours)
+            sess = get_sessions_for_range(time_range, start=start, end=end)
+            if project:
+                sess = [s for s in sess if s.get("project_name") == project]
+            hours = TIME_RANGE_HOURS.get(time_range)
+            stats = compute_global_stats(sess, hours if hours is not None else LIVE_HOURS)
             _update_prometheus(stats)
             # Only upsert for live JSONL ranges; skip a new upsert if the previous one is
             # still running to prevent an unbounded backlog of write tasks.
-            if hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
+            if hours is not None and hours <= LIVE_HOURS and (upsert_task is None or upsert_task.done()):
                 upsert_task = asyncio.create_task(_upsert_in_background(sess))
             await ws.send_json({
                 "sessions": sess,
@@ -1548,8 +1666,13 @@ async def websocket_endpoint(ws: WebSocket, time_range: str = "1d"):
                 "truncation": compute_truncation_savings(),
                 "time_range": time_range,
             })
-            # Historical ranges can poll slower — no live JSONL to watch
-            interval = 2 if TIME_RANGE_HOURS.get(time_range, 24) <= LIVE_HOURS else 10
+            # Live ranges poll fast; historical/all/custom ranges poll slower
+            if hours is not None and hours <= LIVE_HOURS:
+                interval = 2
+            elif start or end or hours is None:
+                interval = 30
+            else:
+                interval = 10
             await asyncio.sleep(interval)
     except WebSocketDisconnect:
         pass
