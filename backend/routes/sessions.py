@@ -224,8 +224,8 @@ async def image_proxy(path: str):
     """
     try:
         p = Path(path).resolve()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid path")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid path") from exc
 
     home = Path.home().resolve()
     temp_dir = Path(tempfile.gettempdir()).resolve()
