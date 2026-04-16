@@ -180,6 +180,33 @@ def compute_global_stats(sessions: list[dict], time_range_hours: int = 24) -> di
     }
 
 
+def get_global_tool_usage(sessions: list[dict], limit: int = 20) -> list[dict]:
+    """Aggregate tool_use call counts across all sessions in list."""
+    import json
+    from collections import Counter
+
+    counts: Counter = Counter()
+    for s in sessions:
+        sid = s["session_id"]
+        matches = list(constants.CLAUDE_DIR.glob(f"*/{sid}.jsonl"))
+        if not matches:
+            continue
+        try:
+            with open(matches[0], encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    try:
+                        entry = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("type") == "assistant":
+                        for block in entry.get("message", {}).get("content") or []:
+                            if isinstance(block, dict) and block.get("type") == "tool_use":
+                                counts[block.get("name") or "Unknown"] += 1
+        except OSError:
+            continue
+    return [{"tool": t, "count": c} for t, c in counts.most_common(limit)]
+
+
 def get_sessions_for_range(
     time_range: str,
     start: str | None = None,

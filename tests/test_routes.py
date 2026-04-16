@@ -183,3 +183,50 @@ def test_batch_summarize_invalid_session_id():
     with TestClient(backend.app) as client:
         resp = client.post("/api/batch/summarize", json={"session_ids": ["../path/traversal"]})
     assert resp.status_code == 400
+
+
+# ─── Analytics endpoint ───────────────────────────────────────────────────────
+
+def test_analytics_endpoint_returns_200(tmp_path, monkeypatch):
+    """GET /api/analytics returns 200 with expected session_metrics keys."""
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+    (tmp_path / "projects").mkdir()
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/analytics?time_range=1d")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "session_metrics" in data
+    sm = data["session_metrics"]
+    for key in [
+        "total_wall_time_seconds",
+        "estimated_time_saved_hours",
+        "cache_efficiency_pct",
+        "cache_savings_usd",
+        "avg_cost_per_turn",
+        "avg_tokens_per_turn",
+        "longest_sessions",
+        "most_expensive_sessions",
+        "most_turns_sessions",
+        "most_subagents_sessions",
+        "projects_by_sessions",
+        "projects_by_cost",
+        "model_distribution",
+        "active_hours",
+        "top_tools",
+    ]:
+        assert key in sm, f"Missing key: {key}"
+    assert len(sm["active_hours"]) == 24
+    assert all("hour" in h and "count" in h for h in sm["active_hours"])
+
+
+def test_analytics_invalid_range_defaults(tmp_path, monkeypatch):
+    """GET /api/analytics with unknown range defaults to 1d without 500."""
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "projects")
+    (tmp_path / "projects").mkdir()
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/analytics?time_range=invalid")
+    assert resp.status_code == 200

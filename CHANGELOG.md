@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.13.0] — 2026-04-16
+
+### UI
+
+- **Analytics tab** — new "Analytics" view in the toolbar (Sessions · Projects · Analytics · Select).
+  Displays 19 metrics across two sections:
+  - **Sessions Analytics**: total wall-clock time spent, estimated time saved (conservative:
+    `output_tokens / 4000` hours), cache efficiency %, cache savings USD, avg cost/turn, avg
+    tokens/turn; ranked lists for longest sessions, most expensive sessions, most turns, most
+    subagents, top projects by activity and by cost; model distribution table; active-hours
+    histogram (24-bar SVG); top tools bar chart.
+  - **Memory Analytics**: total file count, total size, category breakdown, recently modified files,
+    largest files — derived from `/api/memory` tree.
+  Re-fetches on time-range change. No external charting library; plain SVG following existing
+  component patterns.
+
+### Backend
+
+- **`GET /api/analytics?time_range=1d`** — new endpoint returning `session_metrics` with all
+  analytics data. Tool usage is aggregated by scanning JSONL `tool_use` blocks across sessions in
+  the time range (runs in `run_in_executor` to avoid blocking the event loop). Invalid
+  `time_range` values default to `1d`.
+- **`aggregation.get_global_tool_usage(sessions, limit=20)`** — new function that counts
+  `tool_use` blocks across JSONL files for a session list; returns sorted `[{tool, count}]`.
+
+---
+
 ## [2.12.0] — 2026-04-16
 
 ### UI
