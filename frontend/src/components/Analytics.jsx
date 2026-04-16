@@ -97,39 +97,52 @@ function ActiveHoursChart({ data }) {
 
 // ─── Tools chart ─────────────────────────────────────────────────────────────
 
-const TOOL_COLORS = {
-  // File I/O
-  Read:          '#3b82f6',
-  Write:         '#3b82f6',
-  Edit:          '#3b82f6',
-  // Search / navigation
-  Grep:          '#06b6d4',
-  Glob:          '#06b6d4',
-  // Shell execution
-  Bash:          '#f59e0b',
-  // Agent / task orchestration
-  Agent:         '#8b5cf6',
-  Task:          '#8b5cf6',
-  TaskCreate:    '#8b5cf6',
-  TaskUpdate:    '#8b5cf6',
-  TaskGet:       '#8b5cf6',
-  TaskList:      '#8b5cf6',
-  TaskOutput:    '#8b5cf6',
-  TaskStop:      '#8b5cf6',
-  // Web
-  WebFetch:      '#10b981',
-  WebSearch:     '#10b981',
-  // Notebook
-  NotebookEdit:  '#ec4899',
-  // Skill / plan
-  Skill:         '#a855f7',
-  ExitPlanMode:  '#a855f7',
-  EnterPlanMode: '#a855f7',
+// Single source of truth — drives both color lookup and legend
+const TOOL_CATEGORIES = [
+  { label: 'File I/O',     color: '#3b82f6', tools: ['Read', 'Write', 'Edit'] },
+  { label: 'Search',       color: '#06b6d4', tools: ['Grep', 'Glob'] },
+  { label: 'Bash',         color: '#f59e0b', tools: ['Bash'] },
+  { label: 'Agent / Task', color: '#8b5cf6', tools: ['Agent', 'Task', 'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop'] },
+  { label: 'Web',          color: '#10b981', tools: ['WebFetch', 'WebSearch'] },
+  { label: 'Notebook',     color: '#ec4899', tools: ['NotebookEdit'] },
+  { label: 'Plan / Skill', color: '#a855f7', tools: ['Skill', 'ExitPlanMode', 'EnterPlanMode'] },
+  { label: 'MCP',          color: '#14b8a6', tools: [], prefix: 'mcp__' },
+  { label: 'Other',        color: '#6366f1', tools: [] },
+]
+
+// Flat name → color lookup derived from categories
+const TOOL_COLOR_MAP = Object.fromEntries(
+  TOOL_CATEGORIES.flatMap(c => c.tools.map(t => [t, c.color]))
+)
+
+function toolCategory(name) {
+  for (const cat of TOOL_CATEGORIES) {
+    if (cat.tools.includes(name)) return cat
+    if (cat.prefix && name.startsWith(cat.prefix)) return cat
+  }
+  return TOOL_CATEGORIES[TOOL_CATEGORIES.length - 1]  // Other
 }
-const TOOL_COLOR_DEFAULT = '#6366f1'
 
 function toolColor(name) {
-  return TOOL_COLORS[name] ?? TOOL_COLOR_DEFAULT
+  return TOOL_COLOR_MAP[name] ?? toolCategory(name).color
+}
+
+function ToolsLegend({ tools }) {
+  const presentCats = useMemo(() => {
+    const seen = new Set(tools.map(t => toolCategory(t.tool).label))
+    return TOOL_CATEGORIES.filter(c => seen.has(c.label))
+  }, [tools])
+
+  return (
+    <div className="an__tools-legend">
+      {presentCats.map(cat => (
+        <span key={cat.label} className="an__tools-legend-item">
+          <span className="an__tools-legend-swatch" style={{ background: cat.color }} />
+          {cat.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function ToolsChart({ tools }) {
@@ -140,26 +153,29 @@ function ToolsChart({ tools }) {
   const maxCount = tools[0]?.count || 1   // already sorted desc from backend
 
   return (
-    <div className="an__tools-list">
-      {tools.map((t, i) => {
-        const pct = total > 0 ? (t.count / total * 100).toFixed(1) : '0.0'
-        const barPct = (t.count / maxCount * 100).toFixed(2)
-        const color = toolColor(t.tool)
-        return (
-          <div key={t.tool} className="an__tool-row">
-            <span className="an__tool-rank">{i + 1}</span>
-            <span className="an__tool-name">{t.tool}</span>
-            <div className="an__tool-bar-track">
-              <div
-                className="an__tool-bar-fill"
-                style={{ width: `${barPct}%`, background: color }}
-              />
+    <div>
+      <div className="an__tools-list">
+        {tools.map((t, i) => {
+          const pct = total > 0 ? (t.count / total * 100).toFixed(1) : '0.0'
+          const barPct = (t.count / maxCount * 100).toFixed(2)
+          const color = toolColor(t.tool)
+          return (
+            <div key={t.tool} className="an__tool-row">
+              <span className="an__tool-rank">{i + 1}</span>
+              <span className="an__tool-name" title={t.tool}>{t.tool}</span>
+              <div className="an__tool-bar-track">
+                <div
+                  className="an__tool-bar-fill"
+                  style={{ width: `${barPct}%`, background: color }}
+                />
+              </div>
+              <span className="an__tool-count">{t.count.toLocaleString()}</span>
+              <span className="an__tool-pct" style={{ color }}>{pct}%</span>
             </div>
-            <span className="an__tool-count">{t.count.toLocaleString()}</span>
-            <span className="an__tool-pct" style={{ color }}>{pct}%</span>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+      <ToolsLegend tools={tools} />
     </div>
   )
 }
