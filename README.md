@@ -13,6 +13,10 @@ A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, co
 - **Token & cost tracking** — Input, output, cache creation, and cache read tokens with cost estimates per model
 - **Session filtering & sorting** — Filter by active/today/all; sort by activity, cost, or turns
 - **Session detail overlay** — Paginated message viewer with tool blocks, thinking blocks, and transcript export
+- **Full-text search** — Find sessions by content, queries, or metadata
+- **Session analytics** — Turn timeline, cost curves, tool usage breakdown, and cost trend charts
+- **Budget guardrails** — Real-time budget breach banner with configurable alerts
+- **Batch operations** — Multi-select sessions, ZIP export, CSV cost reports, bulk summarization
 - **AI session summaries** — Local Ollama (Llama 3.2) summarizes sessions on demand
 - **Export as skill** — Create a Claude Code skill file from any session (global or local scope)
 - **Savings analytics** — Tracks cost savings from PR-skip summaries and tool output truncation
@@ -25,7 +29,7 @@ A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, co
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, Vite 5, DM Sans + DM Mono |
-| Backend | Python 3.11, FastAPI, Uvicorn |
+| Backend | Python 3.14, FastAPI, Uvicorn |
 | Database | SQLite (derived cache — safe to delete and rebuild) |
 | Real-time | WebSockets |
 | Optional AI | Ollama (Llama 3.2) |
@@ -33,7 +37,7 @@ A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, co
 
 ## Prerequisites
 
-- Python 3.11+ with [pipenv](https://pipenv.pypa.io/)
+- Python 3.14+ with [pipenv](https://pipenv.pypa.io/)
 - Node.js 18+ with npm
 - [Ollama](https://ollama.ai/) (optional — for session summarization)
 
@@ -90,10 +94,15 @@ environment:
 | Endpoint | Description |
 |---|---|
 | `GET /api/sessions` | All sessions with stats for the given `time_range` |
+| `GET /api/search` | Full-text search sessions by content or metadata |
 | `GET /api/sessions/{id}/detail` | Paginated message thread for a session |
 | `GET /api/sessions/{id}/transcript` | Full session as Markdown download |
+| `GET /api/sessions/{id}/analytics` | Session analytics (turn timeline, cost curve, tool usage) |
 | `POST /api/sessions/{id}/summarize` | Generate Ollama AI summary |
 | `POST /api/sessions/{id}/export-skill` | Export session as a Claude Code skill file |
+| `POST /api/batch/summarize` | Generate AI summaries for multiple sessions |
+| `POST /api/batch/export` | Export multiple sessions as ZIP archive |
+| `POST /api/batch/cost-report` | Generate CSV cost report for selected sessions |
 | `GET /api/ollama` | Ollama availability and model status |
 | `GET /metrics` | Prometheus metrics (10 gauges) |
 | `WS /ws?time_range=1d` | WebSocket stream; updates every 2s (live) or 10s (historical) |
