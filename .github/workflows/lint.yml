@@ -41,3 +41,10 @@ jobs:
           fail_on_error: true
           workdir: frontend
           eslint_flags: src
+
+  actionlint:
+    name: Actionlint (GitHub Actions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: rhysd/actionlint@v1.7.7

@@ -1,8 +1,10 @@
 """Tests for backend.aggregation — global stats, project stats, session routing."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import backend
+from backend import aggregation, constants
 
 # ─── compute_global_stats ─────────────────────────────────────────────────────
 
@@ -172,3 +174,97 @@ def test_compute_project_stats_mixed_timestamps():
     p = result[0]
     # first_session must be <= last_session after normalizing Z vs +00:00
     assert p["first_session"].replace("Z", "+00:00") <= p["last_session"].replace("Z", "+00:00")
+
+
+# ─── get_global_tool_usage ────────────────────────────────────────────────────
+
+def _write_jsonl(path, entries):
+    """Write a list of dicts as newline-delimited JSON."""
+    path.write_text("\n".join(json.dumps(e) for e in entries), encoding="utf-8")
+
+
+def _tool_use_entry(tool_names):
+    """Build a minimal assistant message entry with tool_use blocks."""
+    return {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "tool_use", "name": name}
+                for name in tool_names
+            ]
+        },
+    }
+
+
+class TestGetGlobalToolUsage:
+    def test_counts_tool_use_blocks(self, tmp_path, monkeypatch):
+        """Counts tool_use blocks correctly across sessions."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        sid = "abc123"
+        _write_jsonl(proj / f"{sid}.jsonl", [
+            _tool_use_entry(["Read", "Edit"]),
+            _tool_use_entry(["Read"]),
+            {"type": "user", "message": {"content": [{"type": "tool_use", "name": "Ignored"}]}},
+        ])
+        monkeypatch.setattr(constants, "CLAUDE_DIR", tmp_path)
+        sessions = [{"session_id": sid}]
+        result = aggregation.get_global_tool_usage(sessions)
+        counts = {r["tool"]: r["count"] for r in result}
+        assert counts["Read"] == 2
+        assert counts["Edit"] == 1
+        assert "Ignored" not in counts
+
+    def test_sorted_by_count_descending(self, tmp_path, monkeypatch):
+        """Results are ordered most-used first."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        sid = "def456"
+        _write_jsonl(proj / f"{sid}.jsonl", [
+            _tool_use_entry(["A", "A", "A", "B", "B", "C"]),
+        ])
+        monkeypatch.setattr(constants, "CLAUDE_DIR", tmp_path)
+        result = aggregation.get_global_tool_usage([{"session_id": sid}])
+        assert result[0]["tool"] == "A"
+        assert result[1]["tool"] == "B"
+        assert result[2]["tool"] == "C"
+
+    def test_malformed_lines_skipped(self, tmp_path, monkeypatch):
+        """Lines that are not valid JSON are silently skipped."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        sid = "ghi789"
+        content = 'not json\n' + json.dumps(_tool_use_entry(["Bash"])) + '\n{bad}'
+        (proj / f"{sid}.jsonl").write_text(content, encoding="utf-8")
+        monkeypatch.setattr(constants, "CLAUDE_DIR", tmp_path)
+        result = aggregation.get_global_tool_usage([{"session_id": sid}])
+        assert result == [{"tool": "Bash", "count": 1}]
+
+    def test_missing_session_file_skipped(self, tmp_path, monkeypatch):
+        """Session with no matching JSONL file is skipped without error."""
+        monkeypatch.setattr(constants, "CLAUDE_DIR", tmp_path)
+        result = aggregation.get_global_tool_usage([{"session_id": "nonexistent-session"}])
+        assert result == []
+
+    def test_missing_tool_name_uses_unknown(self, tmp_path, monkeypatch):
+        """tool_use block with no 'name' key falls back to 'Unknown'."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        sid = "jkl012"
+        _write_jsonl(proj / f"{sid}.jsonl", [
+            {"type": "assistant", "message": {"content": [{"type": "tool_use"}]}},
+        ])
+        monkeypatch.setattr(constants, "CLAUDE_DIR", tmp_path)
+        result = aggregation.get_global_tool_usage([{"session_id": sid}])
+        assert result == [{"tool": "Unknown", "count": 1}]
+
+    def test_respects_limit(self, tmp_path, monkeypatch):
+        """Returns at most `limit` tools."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        sid = "mno345"
+        tools = [chr(ord("A") + i) for i in range(10)]
+        _write_jsonl(proj / f"{sid}.jsonl", [_tool_use_entry(tools)])
+        monkeypatch.setattr(constants, "CLAUDE_DIR", tmp_path)
+        result = aggregation.get_global_tool_usage([{"session_id": sid}], limit=3)
+        assert len(result) == 3

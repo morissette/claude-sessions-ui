@@ -10,6 +10,7 @@ import { usePersistedState } from './hooks/usePersistedState.js'
 import TrendsChart from './components/TrendsChart'
 import { ProjectList } from './components/ProjectCard'
 import BatchActionBar from './components/BatchActionBar'
+import Analytics from './components/Analytics'
 import './App.css'
 
 const PREFS_DEFAULTS = {
@@ -340,6 +341,10 @@ export default function App() {
             onClick={() => setViewMode('projects')}
           >Projects</button>
           <button
+            className={`toolbar__view-btn ${viewMode === 'analytics' ? 'active' : ''}`}
+            onClick={() => setViewMode('analytics')}
+          >Analytics</button>
+          <button
             type="button"
             className={`toolbar__view-btn ${selectMode ? 'active' : ''}`}
             onClick={toggleSelectMode}
@@ -456,6 +461,8 @@ export default function App() {
           ? <MemoryExplorer />
           : viewMode === 'projects'
           ? <ProjectList projects={projectData} onSelect={handleProjectSelect} />
+          : viewMode === 'analytics'
+          ? <Analytics timeRange={timeRange} customStart={customStart} customEnd={customEnd} />
           : sorted.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">◇</div>

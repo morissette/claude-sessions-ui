@@ -1,0 +1,385 @@
+.an {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Two-pane split ──────────────────────────────────────────────── */
+.an__split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  align-items: start;
+  min-height: 0;
+}
+
+.an__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+  padding: 0 1.5rem 2rem;
+}
+
+.an__pane:first-child {
+  border-right: 1px solid var(--border);
+  padding-left: 0;
+}
+
+.an__pane:last-child {
+  padding-right: 0;
+}
+
+/* ── Pane header ─────────────────────────────────────────────────── */
+.an__pane-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+}
+
+/* ── Section header (inner) ──────────────────────────────────────── */
+.an__section-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .an__split {
+    grid-template-columns: 1fr;
+  }
+  .an__pane:first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 2rem;
+  }
+  .an__pane:last-child {
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 1.5rem;
+  }
+}
+
+/* ── KPI tiles ───────────────────────────────────────────────────── */
+.an__kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+
+.an__kpi-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.an__kpi-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.an__kpi-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.an__kpi-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.an__kpi-caveat {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Ranked list cards ───────────────────────────────────────────── */
+.an__ranked-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.an__ranked-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.an__ranked-card-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+}
+
+.an__ranked-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.84rem;
+}
+
+.an__ranked-row:last-child {
+  border-bottom: none;
+}
+
+.an__ranked-num {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  min-width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.an__ranked-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  min-width: 0;
+}
+
+.an__ranked-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--cost);
+  flex-shrink: 0;
+  font-size: 0.82rem;
+}
+
+/* ── Charts row ──────────────────────────────────────────────────── */
+.an__charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 1100px) {
+  .an__charts-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.an__chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.an__chart-title {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+}
+
+/* ── SVG helpers ─────────────────────────────────────────────────── */
+.an__svg {
+  width: 100%;
+  display: block;
+}
+
+/* ── Tools chart ─────────────────────────────────────────────────── */
+.an__tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.an__tool-row {
+  display: grid;
+  grid-template-columns: 20px 200px 1fr 56px 44px;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 700px) {
+  .an__tool-row {
+    grid-template-columns: 18px 140px 1fr 48px 38px;
+    gap: 0.4rem;
+    font-size: 0.76rem;
+  }
+}
+
+.an__tool-rank {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.an__tool-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.an__tool-bar-track {
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.an__tool-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  opacity: 0.85;
+  transition: width 0.3s ease;
+}
+
+.an__tool-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  text-align: right;
+  font-size: 0.78rem;
+}
+
+.an__tool-pct {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tools legend ────────────────────────────────────────────────── */
+.an__tools-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.an__tools-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.an__tools-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ── Model table ─────────────────────────────────────────────────── */
+.an__model-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.an__model-table th {
+  text-align: left;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 0.25rem 0.5rem 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.an__model-table td {
+  padding: 0.35rem 0.5rem 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.an__model-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Misc sub-section title ──────────────────────────────────────── */
+.an__misc-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  opacity: 0.8;
+}
+
+/* Dim value variant (e.g. plugin install dates) */
+.an__ranked-val--dim {
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+/* Mono name variant (skill names) */
+.an__ranked-name--mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+}
+
+/* Active dot indicator */
+.an__misc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--active);
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* ── Loading / empty ─────────────────────────────────────────────── */
+.an__loading {
+  padding: 3rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.an__empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+/* ── Memory section ──────────────────────────────────────────────── */
+.an__memory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}

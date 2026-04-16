@@ -49,13 +49,12 @@ jobs:
             fi
             sleep 1
           done
-          curl -sf http://localhost:8765/api/sessions | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-n = len(d['sessions'])
-assert n >= 5, f'Expected >= 5 sessions from fixture data, got {n}'
-print(f'OK — sessions endpoint returned {n} sessions')
-"
+          n=$(curl -sf http://localhost:8765/api/sessions | python3 -c "import sys,json; print(len(json.load(sys.stdin)['sessions']))")
+          if [ "$n" -ge 5 ]; then
+            echo "OK — sessions endpoint returned ${n} sessions"
+          else
+            echo "Expected >=5 sessions, got ${n}"; exit 1
+          fi
 
       - name: Dump logs on failure
         if: failure()

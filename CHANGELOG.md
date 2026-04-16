@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.13.0] — 2026-04-16
+
+### UI
+
+- **Analytics tab** — new "Analytics" view in the toolbar (Sessions · Projects · Analytics · Select).
+  Side-by-side Session / Memory panes, each independently scrollable.
+  - **Sessions Analytics**: 6 KPI tiles (wall-clock time, estimated time saved, cache efficiency %,
+    cache savings USD, avg cost/turn, avg tokens/turn); ranked lists for longest, most expensive,
+    most turns, most subagents, top projects by activity and cost; model distribution table;
+    24-bar active-hours histogram; top-tools bar chart.
+  - **Memory Analytics**: total file count/size KPIs, category breakdown, recently modified, largest
+    files — derived from `/api/memory` tree.
+  - **Customization & Knowledge Base** subsections (from `/api/misc-stats`): skills, slash commands,
+    agents, hooks, plugins, env vars, permissions; summary coverage, memory type distribution, plans.
+  - Re-fetches on time-range change, including custom date range. No external charting library.
+- **Top-tools chart** — CSS grid layout with rank badge, monospace name, percentage fill bar
+  color-coded by category (file I/O, search, Bash, agent/task, web, notebook, plan-mode, MCP),
+  call count, and share-of-total %. Legend shows only categories present in the current dataset.
+  Tool name column widened to 200px (140px mobile) to prevent truncation of long MCP tool names;
+  `title` attribute shows full name on hover.
+- **Custom date range** passed through to Analytics — fetches with `start`/`end` params when
+  `timeRange='custom'`; skips fetch when dates not yet filled in.
+
+### Backend
+
+- **`GET /api/analytics?time_range=1d`** — new endpoint returning `session_metrics`. Accepts
+  optional `start`/`end` ISO-8601 params for custom date ranges (routes to SQLite). Invalid
+  `time_range` defaults to `1d`. Tool usage aggregated via `run_in_executor`.
+- **`GET /api/misc-stats`** — new endpoint returning customization metrics (skills, commands,
+  agents, hooks, plugins, env vars, permissions) and knowledge-base metrics (summary coverage,
+  memory type distribution, plans count).
+- **`aggregation.get_global_tool_usage(sessions, limit=20)`** — counts `tool_use` blocks across
+  JSONL files for a session list; returns sorted `[{tool, count}]`.
+- **Sort fix** — `projects_by_cost` sorted on raw float before rounding to avoid mis-ranking
+  projects whose costs differ only beyond 4 decimal places.
+
+### Tests
+
+- `Analytics.test.jsx` — 13 component tests: empty/full state, KPI tiles, ranked cards,
+  tool chart always-render, time-range re-fetch.
+- `TestGetGlobalToolUsage` — 6 unit tests: counts, ordering, malformed-line skip, missing file,
+  unknown tool name, limit enforcement.
+- `test_misc_stats` — route-level tests for the new `/api/misc-stats` endpoint.
+
+### CI
+
+- **Auto-merge workflow** — auto-approves and squash-merges PRs authored by `morissette` once all
+  CI checks pass and Copilot review threads are resolved. Requires repo setting:
+  Settings → Actions → General → "Allow GitHub Actions to approve pull requests" ✓
+- **Actionlint** — added `rhysd/actionlint@v1.7.7` job to `lint.yml` to catch GitHub Actions
+  workflow YAML errors in CI.
+- **Docker smoke test** — fixed YAML parse error (unindented `python3 -c` block); rewrote
+  assertion as a proper `if` statement (SC2015).
+
+---
+
 ## [2.12.0] — 2026-04-16
 
 ### UI
