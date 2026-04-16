@@ -1,10 +1,46 @@
 .an {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
 }
 
-/* ── Section header ──────────────────────────────────────────────── */
+/* ── Two-pane split ──────────────────────────────────────────────── */
+.an__split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  align-items: start;
+  min-height: 0;
+}
+
+.an__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+  padding: 0 1.5rem 2rem;
+}
+
+.an__pane:first-child {
+  border-right: 1px solid var(--border);
+  padding-left: 0;
+}
+
+.an__pane:last-child {
+  padding-right: 0;
+}
+
+/* ── Pane header ─────────────────────────────────────────────────── */
+.an__pane-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+}
+
+/* ── Section header (inner) ──────────────────────────────────────── */
 .an__section-title {
   font-size: 0.68rem;
   font-weight: 700;
@@ -16,12 +52,29 @@
   margin-bottom: 1.25rem;
 }
 
+@media (max-width: 900px) {
+  .an__split {
+    grid-template-columns: 1fr;
+  }
+  .an__pane:first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 2rem;
+  }
+  .an__pane:last-child {
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 1.5rem;
+  }
+}
+
 /* ── KPI tiles ───────────────────────────────────────────────────── */
 .an__kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
 }
 
 .an__kpi-tile {
@@ -62,9 +115,8 @@
 /* ── Ranked list cards ───────────────────────────────────────────── */
 .an__ranked-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
 }
 
 .an__ranked-card {
@@ -125,11 +177,10 @@
 .an__charts-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  gap: 0.75rem;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .an__charts-row {
     grid-template-columns: 1fr;
   }
@@ -294,6 +345,6 @@
 /* ── Memory section ──────────────────────────────────────────────── */
 .an__memory-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
 }

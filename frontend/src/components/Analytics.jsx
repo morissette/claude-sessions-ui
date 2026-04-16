@@ -297,10 +297,11 @@ export default function Analytics({ timeRange }) {
 
   return (
     <div className="an">
+      <div className="an__split">
 
       {/* ── Sessions Analytics ─────────────────────────────────────────── */}
-      <section>
-        <div className="an__section-title">Sessions Analytics</div>
+      <div className="an__pane">
+        <div className="an__pane-title">Session Analytics</div>
 
         <div className="an__kpi-grid">
           <KpiTile
@@ -429,11 +430,11 @@ export default function Analytics({ timeRange }) {
             <ToolsChart tools={sm.top_tools} />
           </div>
         )}
-      </section>
+      </div>
 
       {/* ── Memory Analytics ───────────────────────────────────────────── */}
-      <section>
-        <div className="an__section-title">Memory Analytics</div>
+      <div className="an__pane">
+        <div className="an__pane-title">Memory Analytics</div>
 
         <div className="an__kpi-grid">
           <KpiTile
@@ -475,8 +476,9 @@ export default function Analytics({ timeRange }) {
             </div>
           )}
         </div>
-      </section>
+      </div>
 
+      </div>{/* an__split */}
     </div>
   )
 }
