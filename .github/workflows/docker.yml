@@ -9,6 +9,7 @@ on:
       - Pipfile.lock
       - backend/**
       - frontend/**
+      - .github/workflows/docker.yml
   pull_request:
     paths:
       - Dockerfile
@@ -16,6 +17,7 @@ on:
       - Pipfile.lock
       - backend/**
       - frontend/**
+      - .github/workflows/docker.yml
 
 jobs:
   docker-build:
