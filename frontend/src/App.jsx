@@ -462,7 +462,7 @@ export default function App() {
           : viewMode === 'projects'
           ? <ProjectList projects={projectData} onSelect={handleProjectSelect} />
           : viewMode === 'analytics'
-          ? <Analytics timeRange={timeRange} />
+          ? <Analytics timeRange={timeRange} customStart={customStart} customEnd={customEnd} />
           : sorted.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">◇</div>

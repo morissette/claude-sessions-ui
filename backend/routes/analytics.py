@@ -123,16 +123,17 @@ def _compute_analytics(sessions: list[dict], tool_usage: list[dict]) -> dict:
         projects[key]["session_count"] += 1
         projects[key]["total_cost_usd"] += s["stats"].get("estimated_cost_usd", 0.0)
 
-    proj_list = [
-        {
-            "project_name": v["project_name"],
-            "session_count": v["session_count"],
-            "total_cost_usd": round(v["total_cost_usd"], 4),
-        }
-        for v in projects.values()
+    proj_list = list(projects.values())
+    projects_by_sessions = [
+        {"project_name": p["project_name"], "session_count": p["session_count"],
+         "total_cost_usd": round(p["total_cost_usd"], 4)}
+        for p in sorted(proj_list, key=lambda p: p["session_count"], reverse=True)[:10]
     ]
-    projects_by_sessions = sorted(proj_list, key=lambda p: p["session_count"], reverse=True)[:10]
-    projects_by_cost = sorted(proj_list, key=lambda p: p["total_cost_usd"], reverse=True)[:10]
+    projects_by_cost = [
+        {"project_name": p["project_name"], "session_count": p["session_count"],
+         "total_cost_usd": round(p["total_cost_usd"], 4)}
+        for p in sorted(proj_list, key=lambda p: p["total_cost_usd"], reverse=True)[:10]
+    ]
 
     # ── Model distribution ────────────────────────────────────────────────────
     by_model: dict[str, dict] = {}
@@ -215,12 +216,27 @@ def _empty_response(tool_usage: list[dict]) -> dict:
 
 
 @router.get("/api/analytics")
-async def get_analytics(time_range: str = "1d"):
-    if time_range not in constants.TIME_RANGE_HOURS:
+async def get_analytics(
+    time_range: str = "1d",
+    start: str | None = None,
+    end: str | None = None,
+):
+    # Custom date range: validate ISO strings, delegate to SQLite
+    if start or end:
+        from datetime import datetime  # noqa: PLC0415
+        for label, val in (("start", start), ("end", end)):
+            if val:
+                try:
+                    datetime.fromisoformat(constants._normalize_ts(val))
+                except ValueError as exc:
+                    from fastapi import HTTPException  # noqa: PLC0415
+                    raise HTTPException(status_code=422, detail=f"Invalid {label} date") from exc
+    elif time_range not in constants.TIME_RANGE_HOURS:
         time_range = "1d"
+
     loop = asyncio.get_running_loop()
     sessions = await loop.run_in_executor(
-        None, aggregation.get_sessions_for_range, time_range
+        None, aggregation.get_sessions_for_range, time_range, start, end
     )
     tool_usage = await loop.run_in_executor(
         None, aggregation.get_global_tool_usage, sessions

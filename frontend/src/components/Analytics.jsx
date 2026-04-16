@@ -246,20 +246,28 @@ function MemoryCategories({ files }) {
 
 // ─── Main Analytics component ─────────────────────────────────────────────────
 
-export default function Analytics({ timeRange }) {
+export default function Analytics({ timeRange, customStart, customEnd }) {
   const [fetchState, setFetchState] = useState({ data: null, loading: true })
   const [memoryTree, setMemoryTree] = useState(null)
   const [miscStats, setMiscStats] = useState(null)
 
-  // Fetch analytics; re-fetch when timeRange changes
+  // Fetch analytics; re-fetch when timeRange or custom date bounds change
   useEffect(() => {
+    let url
+    if (timeRange === 'custom' && customStart && customEnd) {
+      url = `/api/analytics?time_range=custom&start=${customStart}T00:00:00Z&end=${customEnd}T23:59:59Z`
+    } else if (timeRange === 'custom') {
+      return  // dates not yet filled in — keep current display, don't fetch
+    } else {
+      url = `/api/analytics?time_range=${timeRange}`
+    }
     let cancelled = false
-    fetch(`/api/analytics?time_range=${timeRange}`)
+    fetch(url)
       .then(r => r.json())
       .then(d => { if (!cancelled) setFetchState({ data: d, loading: false }) })
       .catch(() => { if (!cancelled) setFetchState(prev => ({ ...prev, loading: false })) })
     return () => { cancelled = true }
-  }, [timeRange])
+  }, [timeRange, customStart, customEnd])
 
   // Fetch memory tree + misc stats once on mount
   useEffect(() => {
