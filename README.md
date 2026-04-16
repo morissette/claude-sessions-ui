@@ -18,6 +18,7 @@ A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, co
 - **Session detail overlay** — Paginated message viewer with tool blocks, thinking blocks, and transcript export
 - **Full-text search** — Find sessions by content, queries, or metadata
 - **Session analytics** — Turn timeline, cost curves, tool usage breakdown, and cost trend charts
+- **Cross-session analytics** — Dedicated Analytics tab with KPI tiles, ranked session/project lists, model distribution, active-hours histogram, top-tools chart (color-coded by category), and memory/customization stats
 - **Budget guardrails** — Real-time budget breach banner with configurable alerts
 - **Batch operations** — Multi-select sessions, ZIP export, CSV cost reports, bulk summarization
 - **AI session summaries** — Local Ollama (Llama 3.2) summarizes sessions on demand
@@ -101,6 +102,8 @@ environment:
 | `GET /api/sessions/{id}/detail` | Paginated message thread for a session |
 | `GET /api/sessions/{id}/transcript` | Full session as Markdown download |
 | `GET /api/sessions/{id}/analytics` | Session analytics (turn timeline, cost curve, tool usage) |
+| `GET /api/analytics` | Cross-session analytics: KPI tiles, ranked lists, model distribution, top tools |
+| `GET /api/misc-stats` | Customization metrics (skills, hooks, plugins) and knowledge-base stats |
 | `POST /api/sessions/{id}/summarize` | Generate Ollama AI summary |
 | `POST /api/sessions/{id}/export-skill` | Export session as a Claude Code skill file |
 | `POST /api/batch/summarize` | Generate AI summaries for multiple sessions |
