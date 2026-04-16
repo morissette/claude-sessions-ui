@@ -135,6 +135,34 @@ From inside any session detail, export the session as a reusable Claude Code ski
 
 ---
 
+## Analytics Dashboard
+
+The **Analytics** tab (top toolbar) provides a global view of Claude usage across all sessions, split into two panes:
+
+**Session Analytics (left pane):**
+- KPI tiles: total time spent, estimated time saved, cache efficiency %, cache savings (USD), avg cost/turn, avg tokens/turn
+- Ranked lists: longest sessions, most expensive sessions, most turns, sessions with most subagents
+- Projects by session count and by total cost
+- Model distribution table (sessions, %, cost per model)
+- Active hours histogram — 24-bar chart of session start times
+- Top Tools bar chart — color-coded by category (file ops, search, code, agent, web, data) with legend
+
+**Memory Analytics (right pane):**
+- Total memory files + size across all `~/.claude/memory/` and project memory directories
+- By-category breakdown of memory file directories
+- Recently modified files (top 5)
+- Largest files (top 5)
+- **Customization** subsection: skills, commands, agents, hooks, plugins, permissions, env vars, todo file count
+- **Knowledge Base** subsection: session summary coverage %, project memory count, plans count, memory entries by type (user/feedback/project/reference)
+
+The time range selector applies to session metrics; memory and customization stats are always current.
+
+![Analytics dashboard](images/feature-analytics-tab.png)
+
+![Analytics charts section](images/feature-analytics-charts.png)
+
+---
+
 ## Session Analytics
 
 The **Analytics** tab inside session detail shows:

@@ -41,4 +41,5 @@ frontend/.vite/
 # OS
 Thumbs.db
 .anthropic_key
-.claude/
+.claude/*
+!.claude/skills/
