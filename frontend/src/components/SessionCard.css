@@ -384,10 +384,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 0;
   border-top: 1px solid var(--border);
   background: var(--surface-2);
-  margin: 0 -14px;
+  margin: auto -14px 0;
   padding: 7px 14px;
 }
 
