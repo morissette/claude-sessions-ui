@@ -2,8 +2,8 @@
 
 from .analytics import router as analytics_router
 from .config import router as config_router
-from .misc_stats import router as misc_stats_router
 from .memory import router as memory_router
+from .misc_stats import router as misc_stats_router
 from .projects import router as projects_router
 from .sessions import router as sessions_router
 from .system import router as system_router
