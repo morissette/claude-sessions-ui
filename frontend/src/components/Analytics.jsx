@@ -249,6 +249,7 @@ function MemoryCategories({ files }) {
 export default function Analytics({ timeRange }) {
   const [fetchState, setFetchState] = useState({ data: null, loading: true })
   const [memoryTree, setMemoryTree] = useState(null)
+  const [miscStats, setMiscStats] = useState(null)
 
   // Fetch analytics; re-fetch when timeRange changes
   useEffect(() => {
@@ -260,11 +261,15 @@ export default function Analytics({ timeRange }) {
     return () => { cancelled = true }
   }, [timeRange])
 
-  // Fetch memory tree once on mount
+  // Fetch memory tree + misc stats once on mount
   useEffect(() => {
     fetch('/api/memory')
       .then(r => r.json())
       .then(setMemoryTree)
+      .catch(() => {})
+    fetch('/api/misc-stats')
+      .then(r => r.json())
+      .then(setMiscStats)
       .catch(() => {})
   }, [])
 
@@ -424,12 +429,10 @@ export default function Analytics({ timeRange }) {
           </div>
         </div>
 
-        {sm.top_tools.length > 0 && (
-          <div className="an__chart-card">
-            <div className="an__chart-title">Top Tools Used (across all sessions in range)</div>
-            <ToolsChart tools={sm.top_tools} />
-          </div>
-        )}
+        <div className="an__chart-card">
+          <div className="an__chart-title">Top Tools Used (across all sessions in range)</div>
+          <ToolsChart tools={sm.top_tools} />
+        </div>
       </div>
 
       {/* ── Memory Analytics ───────────────────────────────────────────── */}
@@ -476,6 +479,126 @@ export default function Analytics({ timeRange }) {
             </div>
           )}
         </div>
+
+        {miscStats && (
+          <>
+            {/* ── Customization ──────────────────────────────────────── */}
+            <div className="an__misc-section-title">Customization</div>
+
+            <div className="an__kpi-grid">
+              <KpiTile value={miscStats.customization.skills_count}   label="Skills"    color="var(--accent)" />
+              <KpiTile value={miscStats.customization.commands_count} label="Commands"  color="var(--tokens)" />
+              <KpiTile value={miscStats.customization.agents_count}   label="Agents"    color="var(--accent)" />
+              <KpiTile value={miscStats.customization.hooks_count}    label="Hooks"     color="var(--cost)" />
+              {miscStats.customization.plugin_count > 0 && (
+                <KpiTile value={miscStats.customization.plugin_count} label="Plugins"  color="var(--active)" />
+              )}
+              <KpiTile value={miscStats.customization.todos_count}    label="Todo files" color="var(--text-muted)" />
+            </div>
+
+            <div className="an__memory-grid">
+              {miscStats.customization.hook_events_configured?.length > 0 && (
+                <div className="an__ranked-card">
+                  <div className="an__ranked-card-title">Hook Events</div>
+                  {miscStats.customization.hook_events_configured?.map(ev => (
+                    <div key={ev} className="an__ranked-row">
+                      <span className="an__ranked-name">{ev}</span>
+                      <span className="an__misc-dot" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {miscStats.customization.permissions_allow_count > 0 && (
+                <div className="an__ranked-card">
+                  <div className="an__ranked-card-title">Permissions</div>
+                  <div className="an__ranked-row">
+                    <span className="an__ranked-name">Allowed rules</span>
+                    <span className="an__ranked-val">{miscStats.customization.permissions_allow_count}</span>
+                  </div>
+                  <div className="an__ranked-row">
+                    <span className="an__ranked-name">Denied rules</span>
+                    <span className="an__ranked-val">{miscStats.customization.permissions_deny_count}</span>
+                  </div>
+                  <div className="an__ranked-row">
+                    <span className="an__ranked-name">Env vars</span>
+                    <span className="an__ranked-val">{miscStats.customization.env_vars_count}</span>
+                  </div>
+                </div>
+              )}
+
+              {miscStats.customization.plugin_count > 0 && (
+                <div className="an__ranked-card">
+                  <div className="an__ranked-card-title">Installed Plugins</div>
+                  {miscStats.customization.plugins.map(p => (
+                    <div key={p.name} className="an__ranked-row">
+                      <span className="an__ranked-name" title={p.marketplace}>{p.name}</span>
+                      <span className="an__ranked-val an__ranked-val--dim">
+                        {p.installed_at ? new Date(p.installed_at).toLocaleDateString() : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {miscStats.customization.skills_count > 0 && (
+                <div className="an__ranked-card">
+                  <div className="an__ranked-card-title">Skills</div>
+                  {miscStats.customization.skills.slice(0, 8).map(s => (
+                    <div key={s} className="an__ranked-row">
+                      <span className="an__ranked-name an__ranked-name--mono">{s}</span>
+                    </div>
+                  ))}
+                  {miscStats.customization.skills_count > 8 && (
+                    <div className="an__ranked-row">
+                      <span className="an__ranked-name" style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                        +{miscStats.customization.skills_count - 8} more
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Knowledge Base ─────────────────────────────────────── */}
+            <div className="an__misc-section-title">Knowledge Base</div>
+
+            <div className="an__kpi-grid">
+              <KpiTile
+                value={`${miscStats.knowledge.summary_coverage_pct}%`}
+                label="Sessions Summarized"
+                sub={`${miscStats.knowledge.session_summary_count} of ${miscStats.knowledge.total_sessions_db}`}
+                color="var(--active)"
+              />
+              <KpiTile
+                value={miscStats.knowledge.project_memory_bases}
+                label="Project Memories"
+                color="var(--tokens)"
+              />
+              <KpiTile
+                value={miscStats.knowledge.plans_count}
+                label="Plans"
+                sub={fmtSize(miscStats.knowledge.plans_total_bytes)}
+                color="var(--accent)"
+              />
+            </div>
+
+            {Object.keys(miscStats.knowledge.memory_by_type || {}).length > 0 && (
+              <div className="an__ranked-card">
+                <div className="an__ranked-card-title">Memory Entries by Type</div>
+                {Object.entries(miscStats.knowledge.memory_by_type || {})
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([type, count]) => (
+                    <div key={type} className="an__ranked-row">
+                      <span className="an__ranked-name">{type}</span>
+                      <span className="an__ranked-val">{count}</span>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       </div>{/* an__split */}

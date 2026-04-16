@@ -328,6 +328,41 @@
   border-bottom: none;
 }
 
+/* ── Misc sub-section title ──────────────────────────────────────── */
+.an__misc-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  opacity: 0.8;
+}
+
+/* Dim value variant (e.g. plugin install dates) */
+.an__ranked-val--dim {
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+/* Mono name variant (skill names) */
+.an__ranked-name--mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+}
+
+/* Active dot indicator */
+.an__misc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--active);
+  flex-shrink: 0;
+  align-self: center;
+}
+
 /* ── Loading / empty ─────────────────────────────────────────────── */
 .an__loading {
   padding: 3rem;

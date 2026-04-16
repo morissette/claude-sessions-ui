@@ -188,11 +188,11 @@ def get_global_tool_usage(sessions: list[dict], limit: int = 20) -> list[dict]:
     counts: Counter = Counter()
     for s in sessions:
         sid = s["session_id"]
-        matches = list(constants.CLAUDE_DIR.glob(f"*/{sid}.jsonl"))
-        if not matches:
+        match = next(constants.CLAUDE_DIR.glob(f"*/{sid}.jsonl"), None)
+        if match is None:
             continue
         try:
-            with open(matches[0], encoding="utf-8", errors="replace") as f:
+            with open(match, encoding="utf-8", errors="replace") as f:
                 for raw in f:
                     try:
                         entry = json.loads(raw)
