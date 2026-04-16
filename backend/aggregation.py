@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import UTC, datetime, timedelta
 
-from . import constants, database, ollama, parsing, process
+from . import constants, database, detail, ollama, parsing, process
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ def get_global_tool_usage(sessions: list[dict], limit: int = 20) -> list[dict]:
     counts: Counter = Counter()
     for s in sessions:
         sid = s["session_id"]
-        match = next(constants.CLAUDE_DIR.glob(f"*/{sid}.jsonl"), None)
+        match = detail.find_session_file(sid)
         if match is None:
             continue
         try:

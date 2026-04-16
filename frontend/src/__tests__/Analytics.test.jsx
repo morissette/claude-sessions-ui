@@ -65,11 +65,18 @@ const fullAnalytics = {
 }
 
 const memoryTree = {
-  type: 'directory',
-  name: 'memory',
+  type: 'dir',
+  name: '.claude',
   children: [
-    { type: 'file', name: 'user_profile.md', path: '/memory/user_profile.md', size: 512, mtime: 1700000000 },
-    { type: 'file', name: 'feedback_style.md', path: '/memory/feedback_style.md', size: 256, mtime: 1699000000 },
+    {
+      type: 'dir',
+      name: 'memory',
+      path: 'memory',
+      children: [
+        { type: 'file', name: 'user_profile.md', path: 'memory/user_profile.md', size: 512, mtime: 1700000000 },
+        { type: 'file', name: 'feedback_style.md', path: 'memory/feedback_style.md', size: 256, mtime: 1699000000 },
+      ],
+    },
   ],
 }
 

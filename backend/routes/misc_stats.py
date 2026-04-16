@@ -12,8 +12,6 @@ from .. import constants, database
 
 router = APIRouter()
 
-_BASE = constants.CLAUDE_BASE_DIR
-
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -62,17 +60,19 @@ def _parse_frontmatter_type(text: str) -> str | None:
 
 
 def _compute_misc_stats() -> dict:
+    _base = constants.CLAUDE_BASE_DIR  # read at call time so tests can monkeypatch
+
     # ── Customization ────────────────────────────────────────────────────────
 
-    skills_names = _list_names(_BASE / "skills")
-    commands_names = _list_names(_BASE / "commands")
-    agents_names = _list_names(_BASE / "agents")
-    hooks_names = _list_names(_BASE / "hooks", (".py", ".sh", ".bash", ".zsh", ".js", ".ts"))
-    todos_count = _count_dir(_BASE / "todos")
+    skills_names = _list_names(_base / "skills")
+    commands_names = _list_names(_base / "commands")
+    agents_names = _list_names(_base / "agents")
+    hooks_names = _list_names(_base / "hooks", (".py", ".sh", ".bash", ".zsh", ".js", ".ts"))
+    todos_count = _count_dir(_base / "todos")
 
     # Plugins — may not exist; degrade gracefully
     plugins: list[dict] = []
-    plugin_file = _BASE / "plugin_analytics.json"
+    plugin_file = _base / "plugin_analytics.json"
     raw_plugins = _read_json(plugin_file)
     if isinstance(raw_plugins, dict):
         installed = raw_plugins.get("plugins_installed", [])
@@ -94,7 +94,7 @@ def _compute_misc_stats() -> dict:
     hook_events: list[str] = []
     enabled_plugins: list[str] = []
 
-    settings_raw = _read_json(_BASE / "settings.json")
+    settings_raw = _read_json(_base / "settings.json")
     if isinstance(settings_raw, dict):
         perms = settings_raw.get("permissions", {})
         if isinstance(perms, dict):
@@ -126,7 +126,7 @@ def _compute_misc_stats() -> dict:
     )
 
     # Plans count + total bytes
-    plans_dir = _BASE / "plans"
+    plans_dir = _base / "plans"
     plans_count = 0
     plans_total_bytes = 0
     if plans_dir.exists() and plans_dir.is_dir():
@@ -141,7 +141,7 @@ def _compute_misc_stats() -> dict:
 
     # Memory type distribution — scan ~/.claude/memory/ + all projects/*/memory/
     mem_types: dict[str, int] = {"user": 0, "feedback": 0, "project": 0, "reference": 0, "other": 0}
-    memory_dirs: list[Path] = [_BASE / "memory"]
+    memory_dirs: list[Path] = [_base / "memory"]
     try:
         for proj_dir in constants.CLAUDE_DIR.iterdir():
             m_dir = proj_dir / "memory"
@@ -154,7 +154,7 @@ def _compute_misc_stats() -> dict:
     for m_dir in memory_dirs:
         if not m_dir.exists():
             continue
-        if m_dir != _BASE / "memory":
+        if m_dir != _base / "memory":
             project_memory_bases += 1
         try:
             for f in m_dir.iterdir():

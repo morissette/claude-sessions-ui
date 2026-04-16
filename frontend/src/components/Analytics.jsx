@@ -265,28 +265,34 @@ export default function Analytics({ timeRange, customStart, customEnd }) {
     fetch(url)
       .then(r => r.json())
       .then(d => { if (!cancelled) setFetchState({ data: d, loading: false }) })
-      .catch(() => { if (!cancelled) setFetchState(prev => ({ ...prev, loading: false })) })
-    return () => { cancelled = true }
+      .catch(() => { if (!cancelled) setFetchState({ data: null, loading: false }) })
+    return () => {
+      cancelled = true
+      setFetchState({ data: null, loading: true })  // reset on range change
+    }
   }, [timeRange, customStart, customEnd])
 
   // Fetch memory tree + misc stats once on mount
   useEffect(() => {
+    let cancelled = false
     fetch('/api/memory')
       .then(r => r.json())
-      .then(setMemoryTree)
+      .then(d => { if (!cancelled) setMemoryTree(d) })
       .catch(() => {})
     fetch('/api/misc-stats')
       .then(r => r.json())
-      .then(setMiscStats)
+      .then(d => { if (!cancelled) setMiscStats(d) })
       .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
-  // Flatten memory tree for analysis
+  // Flatten memory tree — only memory-relevant files, not session JSONL logs
   const allMemoryFiles = useMemo(() => {
     if (!memoryTree) return []
     const flat = []
+    const memoryPath = /^memory\/|^projects\/[^/]+\/memory\//
     function walk(node) {
-      if (node.type === 'file') flat.push(node)
+      if (node.type === 'file' && memoryPath.test(node.path || '')) flat.push(node)
       for (const child of (node.children || [])) walk(child)
     }
     walk(memoryTree)
