@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.7.0] — 2026-04-15
+
+### Fixed
+
+- **TOOL/RESULT transcript blocks** — collapsed by default; click to expand to a 220 px scrollable area, drag bottom edge to resize. Chevron animates on toggle. Thicker left accent border (3 px) improves visual distinction (#26).
+- **Session-id row** — pinned to the bottom of each session card instead of floating mid-card (#25).
+
+---
+
+## [2.6.0] — 2026-04-14
+
+### Changed
+
+- **Backend modularised** — `backend.py` split into a composable package: `app`, `parsing`, `database`, `fts`, `aggregation`, `process`, `ollama`, `metrics`, `memory`, `skills`, `detail`, `routes/`. No API surface change (#22).
+- **Python 3.14** — runtime upgraded; `asyncio.get_event_loop()` deprecation warnings resolved.
+
+---
+
+## [2.5.0] — 2026-04-10
+
+### Added
+
+- **Batch operations** — multi-select sessions via checkbox, ZIP export of selected transcripts, CSV cost report, bulk Ollama summarise (#20).
+- **Budget guardrails** — `BudgetBanner` displays a real-time breach alert when cumulative spend in the selected time range exceeds the configured threshold (#19).
+
+---
+
+## [2.4.0] — 2026-04-07
+
+### Added
+
+- **Cost trend charts** — daily cost breakdown bar chart with a configurable budget line overlay; accessible from StatsBar (#17).
+- **Budget alert configuration** — threshold and currency unit editable directly in the UI.
+- **Full-text session search** — `GET /api/search?q=` backed by SQLite FTS5; falls back to live JSONL grep for the `1d` range. Results panel with snippet highlighting (#16).
+- **Session analytics panel** — second tab in the session detail overlay: per-turn cost curve (SVG), tool usage frequency bar, turn timeline (#14).
+- **Memory explorer** — read-only file tree for `~/.claude/`; click to preview `.md`/`.txt`/`.json` files up to 50 KB. Path traversal blocked (#15).
+
+---
+
+## [2.3.0] — 2026-04-02
+
+### Added
+
+- **Project-level dashboard** — top-level view groups sessions by `project_path`; shows aggregate cost, token, and turn stats per project with drill-down to individual sessions (#13).
+- **Per-model cost breakdown** — clicking the "Cost" tile in StatsBar opens a popover with a cost-per-model table for the selected time range (#10).
+- **Unlimited history + custom date range** — calendar picker for arbitrary start/end dates beyond the 6 m preset maximum (#12).
+- **Preference persistence** — active filter, sort order, and time range stored in `localStorage`; restored on reload (#11).
+
+---
+
 ## [2.2.0] — 2026-04-15
 
 ### Changed
