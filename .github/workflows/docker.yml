@@ -24,7 +24,7 @@ jobs:
     name: Docker build + smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Build image
         run: docker build -t claude-sessions-ui:ci .
