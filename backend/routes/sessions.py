@@ -4,12 +4,15 @@ import asyncio
 import io
 import json
 import logging
+import mimetypes
 import re
+import tempfile
 import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 
 from .. import (
     aggregation,
@@ -205,6 +208,40 @@ async def export_skill(session_id: str, scope: str = "global"):
         "scope": scope,
         "ollama_used": ollama_used,
     }
+
+
+# ─── Image proxy ─────────────────────────────────────────────────────────────
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+
+
+@router.get("/api/image-proxy")
+async def image_proxy(path: str):
+    """Serve a local image file for inline display in the session transcript.
+
+    Security: path must resolve within the user's home directory, have an image
+    extension, and not be a symlink.
+    """
+    try:
+        p = Path(path).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    home = Path.home().resolve()
+    temp_dir = Path(tempfile.gettempdir()).resolve()
+    in_home = str(p).startswith(str(home) + "/") or p == home
+    in_temp = str(p).startswith(str(temp_dir) + "/")
+    if not in_home and not in_temp:
+        raise HTTPException(status_code=403, detail="Path outside allowed directories")
+    if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Not an image file")
+    if p.is_symlink():
+        raise HTTPException(status_code=403, detail="Symlinks not allowed")
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    media_type = mimetypes.guess_type(str(p))[0] or "image/png"
+    return FileResponse(p, media_type=media_type)
 
 
 # ─── Batch operations ─────────────────────────────────────────────────────────

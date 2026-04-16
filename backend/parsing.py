@@ -2,10 +2,42 @@
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import constants
+
+# ─── Title helpers ────────────────────────────────────────────────────────────
+
+_SYSTEM_TAG_RE = re.compile(r"<([a-z][a-z0-9-]*)>([\s\S]*?)</\1>")
+
+
+def _extract_title(text: str) -> str:
+    """Return a human-readable title from potentially XML-tagged message content.
+
+    For slash-command messages the ``<command-args>`` inner text is the actual
+    user prompt, so we prefer that over the raw tag soup.  Falls back to
+    ``<command-name>`` (e.g. ``/plan``), then to plain tag-stripped text.
+    Returns an empty string when the content is purely system boilerplate
+    (caveats, reminders) so the caller can substitute a generic label.
+    """
+    if not text:
+        return ""
+    if not _SYSTEM_TAG_RE.search(text):
+        return text  # plain text — no tags present
+
+    m = re.search(r"<command-args>([\s\S]*?)</command-args>", text)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+
+    m = re.search(r"<command-name>([\s\S]*?)</command-name>", text)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+
+    # Strip all tags; if meaningful text remains, use it
+    stripped = _SYSTEM_TAG_RE.sub("", text).strip()
+    return stripped
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +209,7 @@ def parse_session_file(jsonl_path: Path, project_path: str) -> dict | None:
         "project_path": project_path,
         "project_name": Path(project_path).name,
         "git_branch": git_branch,
-        "title": (first_user_text or "Untitled session")[:150],
+        "title": (_extract_title(first_user_text) or "Untitled session")[:150],
         "last_activity": last_tool_name or (last_assistant_snippet or None),
         "model": model or "unknown",
         "turns": turns,

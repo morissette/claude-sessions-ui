@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.12.0] — 2026-04-16
+
+### UI
+
+- **Command pins in transcript** — XML-tagged system messages (`<command-name>`, `<command-args>`,
+  `<local-command-stdout>`, `<local-command-caveat>`, `<system-reminder>`) are no longer shown as
+  raw user bubbles. Adjacent system messages collapse into a single horizontal rule pin:
+  `⚡ /plan · Enabled plan mode`. Caveat and reminder messages are silently hidden. Unknown future
+  tag types degrade gracefully to `⚙ system context`. Extend `KNOWN_TAGS` in `SessionDetail.jsx`
+  for new tag types.
+- **Inline image thumbnails** — `[Image: source: /path/to/file.png]` markers in message content
+  now render as small thumbnails (220×180px max) instead of literal text. Failed loads are hidden
+  silently via `onError`.
+
+### Backend
+
+- **`GET /api/image-proxy?path=...`** — new endpoint that serves a local image file for the
+  transcript thumbnail feature. Security: path must resolve within `$HOME`, have an image
+  extension (png/jpg/jpeg/gif/webp/svg), and not be a symlink. Returns 400/403/404 on violations.
+
+---
+
+## [2.11.0] — 2026-04-16
+
+### Added
+
+- **Fixture data generator** (`fixtures/generate.py`) — generates 6 realistic Claude session
+  JSONL files across 3 projects (`myproject`, `api-service`, `data-pipeline`). Covers varied
+  models (Sonnet, Opus, Haiku), multi-turn conversations, tool use, thinking blocks, subagent
+  metadata, and a compacted session with a summary block. Callable as a CLI
+  (`python fixtures/generate.py --output-dir PATH`) or importable module
+  (`from fixtures.generate import generate`). All timestamps are relative to "now" so sessions
+  always appear in the 1h and 1d UI views.
+- **Demo mode** (`demo.sh`) — generates fixture data and starts the app pointed at it; single
+  command to explore the full UI without real Claude sessions
+  (`./demo.sh` or `./demo.sh /custom/path`).
+- **`CLAUDE_DIR` env var override** — `backend/constants.py` now reads `$CLAUDE_DIR` with
+  fallback to the default `~/.claude/projects`, consistent with the existing `OLLAMA_URL`
+  pattern. Enables `CLAUDE_DIR=/tmp/demo/projects ./start.sh`.
+- **`claude_fixture_dir` pytest fixture** (`tests/conftest.py`) — session-scoped fixture that
+  generates realistic JSONL session files in a temp directory; available to any test that
+  declares it as a parameter via `monkeypatch.setattr(backend, "CLAUDE_DIR", claude_fixture_dir)`.
+
+### CI
+
+- **Docker smoke test validates real JSONL parsing** — fixture generator now runs before the
+  container starts; assertion upgraded from "returns valid JSON" to "returns ≥ 5 sessions" to
+  exercise the full JSONL parse path.
+- **`fixtures/**` added to docker.yml path triggers** so fixture changes re-run the smoke test.
+
+---
+
 ## [2.10.0] — 2026-04-15
 
 ### CI

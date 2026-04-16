@@ -514,6 +514,63 @@
   border-radius: 0 4px 4px 0;
 }
 
+/* ── System command pin ───────────────────────────────────── */
+
+.msg-command-pin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  margin: 2px 0;
+}
+
+.msg-command-pin::before,
+.msg-command-pin::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  opacity: 0.6;
+}
+
+.msg-command-pin__badge {
+  font-size: 10px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text-dim);
+  white-space: nowrap;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  letter-spacing: 0.02em;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Inline image thumbnails ──────────────────────────────── */
+
+.msg-image-thumb {
+  display: block;
+  max-width: 220px;
+  max-height: 180px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin-top: 6px;
+  object-fit: contain;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+
+.msg-image-unavailable {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 /* ── Load more ────────────────────────────────────────────── */
 
 .detail-load-more {
