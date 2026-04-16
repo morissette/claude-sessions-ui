@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.8.0] — 2026-04-15
+
+### CI
+
+- **Changelog enforcement** — new `changelog.yml` GitHub Actions workflow blocks PR merges unless `CHANGELOG.md` is modified in the diff.
+
+---
+
 ## [2.7.0] — 2026-04-15
 
 ### Fixed
