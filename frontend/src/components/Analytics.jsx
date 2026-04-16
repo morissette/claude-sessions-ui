@@ -217,11 +217,28 @@ function ModelTable({ models }) {
 
 // ─── Memory category breakdown ────────────────────────────────────────────────
 
+function memCategory(path) {
+  // Extract meaningful subcategory from filtered memory paths:
+  //   memory/<file>              → 'global'
+  //   memory/<dir>/<file>        → <dir>
+  //   projects/<proj>/memory/<file>      → <proj>
+  //   projects/<proj>/memory/<dir>/<file> → <dir>
+  const p = path || ''
+  const projMatch = p.match(/^projects\/([^/]+)\/memory\/([^/]+\/)?/)
+  if (projMatch) {
+    const subdir = projMatch[2]?.replace('/', '')
+    return subdir || projMatch[1]
+  }
+  const memMatch = p.match(/^memory\/([^/]+\/)?/)
+  if (memMatch) return memMatch[1]?.replace('/', '') || 'global'
+  return 'other'
+}
+
 function MemoryCategories({ files }) {
   const cats = useMemo(() => {
     const map = {}
     for (const f of files) {
-      const cat = (f.path || '').includes('/') ? f.path.split('/')[0] : '.'
+      const cat = memCategory(f.path)
       if (!map[cat]) map[cat] = { count: 0, size: 0 }
       map[cat].count++
       map[cat].size += f.size || 0

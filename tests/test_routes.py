@@ -230,3 +230,62 @@ def test_analytics_invalid_range_defaults(tmp_path, monkeypatch):
     with TestClient(backend.app) as client:
         resp = client.get("/api/analytics?time_range=invalid")
     assert resp.status_code == 200
+
+
+# ─── Misc stats endpoint ──────────────────────────────────────────────────────
+
+def test_misc_stats_endpoint_returns_200(tmp_path, monkeypatch):
+    """GET /api/misc-stats returns 200 with customization and knowledge keys."""
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_BASE_DIR", tmp_path / "claude")
+    monkeypatch.setattr(backend, "CLAUDE_DIR", tmp_path / "claude" / "projects")
+    monkeypatch.setattr(backend, "SUMMARIES_DIR", tmp_path / "summaries")
+    (tmp_path / "claude").mkdir()
+    (tmp_path / "claude" / "projects").mkdir()
+    (tmp_path / "summaries").mkdir()
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/misc-stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "customization" in data
+    assert "knowledge" in data
+    c = data["customization"]
+    for key in ["skills_count", "commands_count", "agents_count", "hooks_count",
+                "plugin_count", "todos_count", "permissions_allow_count",
+                "permissions_deny_count", "env_vars_count"]:
+        assert key in c, f"Missing customization key: {key}"
+    k = data["knowledge"]
+    for key in ["session_summary_count", "total_sessions_db", "summary_coverage_pct",
+                "memory_by_type", "project_memory_bases", "plans_count", "plans_total_bytes"]:
+        assert key in k, f"Missing knowledge key: {key}"
+
+
+def test_misc_stats_with_populated_dirs(tmp_path, monkeypatch):
+    """GET /api/misc-stats counts files correctly from a temp ~/.claude structure."""
+    base = tmp_path / "claude"
+    base.mkdir()
+    (base / "skills").mkdir()
+    (base / "skills" / "my-skill.md").write_text("skill")
+    (base / "commands").mkdir()
+    (base / "commands" / "cmd1.md").write_text("cmd")
+    (base / "commands" / "cmd2.md").write_text("cmd")
+    (base / "todos").mkdir()
+    (base / "todos" / "todo1.txt").write_text("- [ ] task")
+    (base / "memory").mkdir()
+
+    monkeypatch.setattr(backend, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(backend, "_db_conn", None)
+    monkeypatch.setattr(backend, "CLAUDE_BASE_DIR", base)
+    monkeypatch.setattr(backend, "CLAUDE_DIR", base / "projects")
+    monkeypatch.setattr(backend, "SUMMARIES_DIR", tmp_path / "summaries")
+    (base / "projects").mkdir()
+    (tmp_path / "summaries").mkdir()
+
+    with TestClient(backend.app) as client:
+        resp = client.get("/api/misc-stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["customization"]["skills_count"] == 1
+    assert data["customization"]["commands_count"] == 2
+    assert data["customization"]["todos_count"] == 1
