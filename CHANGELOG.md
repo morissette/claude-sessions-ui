@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.10.0] — 2026-04-15
+
+### CI
+
+- **GitHub Actions Node.js 24 upgrade** — updated all actions to latest stable versions supporting the Node.js 24 runner runtime: `actions/checkout@v6.0.2`, `astral-sh/setup-uv@v8.0.0`, `actions/setup-node@v6.3.0`, `actions/setup-python@v6.2.0`, `reviewdog/action-eslint@v1.34.0`. Also bumped `node-version` input from 20 to 22 (LTS) in lint and test workflows.
+
+---
+
 ## [2.9.0] — 2026-04-15
 
 ### CI
