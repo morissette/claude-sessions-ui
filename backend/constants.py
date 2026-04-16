@@ -4,7 +4,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-CLAUDE_DIR = Path.home() / ".claude" / "projects"
+CLAUDE_DIR = Path(os.environ.get("CLAUDE_DIR", Path.home() / ".claude" / "projects"))
 DB_PATH = Path.home() / ".claude" / "claude-sessions-ui.db"
 LIVE_HOURS = 24  # Use JSONL for this window; SQLite for everything older
 

@@ -2,6 +2,137 @@ import { useState, useEffect, useCallback } from 'react'
 import SessionAnalytics from './SessionAnalytics'
 import './SessionDetail.css'
 
+// ─── System message helpers ───────────────────────────────────────────────────
+
+/** True if content consists entirely of XML-like system tags (no free text outside). */
+function isSystemContent(content) {
+  if (typeof content !== 'string' || !content.trim()) return false
+  return /^[\s]*(<[a-z][a-z0-9-]*>[\s\S]*?<\/[a-z][a-z0-9-]*>\s*)+$/.test(content)
+}
+
+/** Extract inner text of a named tag, or null. */
+function parseSystemTag(content, tag) {
+  const m = content.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`))
+  return m ? m[1].trim() : null
+}
+
+/**
+ * Classify a system message. Returns { kind, ...data }.
+ * Add new tag types here as the library grows.
+ */
+const KNOWN_TAGS = {
+  'local-command-caveat': () => ({ kind: 'caveat' }),
+  'command-name': (c) => ({
+    kind: 'command',
+    name: parseSystemTag(c, 'command-name'),
+    message: parseSystemTag(c, 'command-message'),
+    args: parseSystemTag(c, 'command-args'),
+  }),
+  'local-command-stdout': (c) => ({
+    kind: 'stdout',
+    text: parseSystemTag(c, 'local-command-stdout'),
+  }),
+  'system-reminder': () => ({ kind: 'reminder' }),
+}
+
+function classifySystemMessage(content) {
+  for (const [tag, fn] of Object.entries(KNOWN_TAGS)) {
+    if (content.includes(`<${tag}>`)) return fn(content)
+  }
+  return { kind: 'unknown' }
+}
+
+/** Collapse adjacent system user messages into groups. Normal messages pass through. */
+function groupMessages(messages) {
+  const result = []
+  let i = 0
+  while (i < messages.length) {
+    const msg = messages[i]
+    if (msg.type === 'user' && isSystemContent(msg.content)) {
+      const group = []
+      while (i < messages.length && messages[i].type === 'user' && isSystemContent(messages[i].content)) {
+        group.push(messages[i])
+        i++
+      }
+      result.push({ __systemGroup: true, messages: group, key: group[0].id })
+    } else {
+      result.push(msg)
+      i++
+    }
+  }
+  return result
+}
+
+/** Replace [Image: source: /path] markers with inline <img> thumbnails. */
+function renderContentWithImages(content) {
+  if (typeof content !== 'string') return content
+  const matches = [...content.matchAll(/\[Image:\s*source:\s*([^\]]+?)\]/g)]
+  if (matches.length === 0) return content
+
+  const parts = []
+  let last = 0
+  for (const m of matches) {
+    if (m.index > last) parts.push(content.slice(last, m.index))
+    const filePath = m[1].trim()
+    const src = `/api/image-proxy?path=${encodeURIComponent(filePath)}`
+    parts.push(
+      <img
+        key={m.index}
+        src={src}
+        className="msg-image-thumb"
+        alt={filePath.split('/').pop()}
+        onError={e => {
+          const img = e.target
+          img.style.display = 'none'
+          const span = document.createElement('span')
+          span.className = 'msg-image-unavailable'
+          span.textContent = `[${img.alt}]`
+          img.parentNode.insertBefore(span, img.nextSibling)
+        }}
+      />
+    )
+    last = m.index + m[0].length
+  }
+  if (last < content.length) parts.push(content.slice(last))
+  return parts
+}
+
+// ─── System pin ───────────────────────────────────────────────────────────────
+
+function SystemPin({ group }) {
+  let cmdName = null, args = null, stdout = null, hasContent = false
+
+  for (const msg of group.messages) {
+    const info = classifySystemMessage(msg.content)
+    if (info.kind === 'command') {
+      cmdName = info.name
+      args = info.args || info.message
+      hasContent = true
+    }
+    if (info.kind === 'stdout' && info.text) { stdout = info.text; hasContent = true }
+    if (info.kind === 'unknown') { hasContent = true }
+  }
+
+  // caveat/reminder-only groups: render nothing
+  if (!hasContent) return null
+
+  const icon = cmdName ? '⚡' : '⚙'
+  const detail = stdout
+    ? (stdout.length > 60 ? stdout.slice(0, 60) + '…' : stdout)
+    : args
+      ? (args.length > 60 ? args.slice(0, 60) + '…' : args)
+      : null
+  const text = [cmdName, detail].filter(Boolean).join(' · ') || 'system context'
+
+  return (
+    <div className="msg-command-pin">
+      <span className="msg-command-pin__badge">{icon} {text}</span>
+    </div>
+  )
+}
+
+// ─── Message thread ───────────────────────────────────────────────────────────
+
 function MessageThread({ messages }) {
   if (messages.length === 0) {
     return <div className="detail-empty">No messages in this session</div>
@@ -10,7 +141,15 @@ function MessageThread({ messages }) {
   const items = []
   let prevRole = null
 
-  messages.forEach((msg, i) => {
+  groupMessages(messages).forEach((item, i) => {
+    if (item.__systemGroup) {
+      const pin = <SystemPin key={`sys-${item.key}`} group={item} />
+      if (pin) items.push(pin)
+      // pins don't update prevRole — they sit between messages without breaking divider logic
+      return
+    }
+
+    const msg = item
     const role =
       msg.type === 'user' ? 'user'
       : msg.type === 'assistant' ? 'assistant'
@@ -36,7 +175,7 @@ function MessageThread({ messages }) {
             {msg.timestamp && (
               <span className="msg-ts">{new Date(msg.timestamp).toLocaleTimeString()}</span>
             )}
-            <div className="msg-text">{msg.content}</div>
+            <div className="msg-text">{renderContentWithImages(msg.content)}</div>
           </div>
         </div>
       )
@@ -54,7 +193,7 @@ function MessageThread({ messages }) {
                 <pre className="msg-pre">{msg.thinking}</pre>
               </details>
             )}
-            <div className="msg-text">{msg.content}</div>
+            <div className="msg-text">{renderContentWithImages(msg.content)}</div>
           </div>
         </div>
       )
