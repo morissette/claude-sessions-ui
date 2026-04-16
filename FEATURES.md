@@ -111,7 +111,7 @@ Hover a card to reveal the "view details" link:
 
 ## Session Detail & Transcript
 
-Click any session to open the detail overlay — a paginated message viewer showing full user/assistant turns, tool call blocks, and thinking blocks.
+Click any session to open the detail overlay — a message viewer showing full user/assistant turns, thinking blocks, and tool call/result blocks. Tool and result entries are **collapsed by default** into compact single-line rows: an accent-bar (orange = tool, green = result), a colored pill badge (`TOOL` / `RESULT`), and the tool name. Click the `>` chevron to expand and read the full payload.
 
 ![Session detail overlay](images/feature-session-detail-overlay.png)
 
