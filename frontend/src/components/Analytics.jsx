@@ -95,45 +95,72 @@ function ActiveHoursChart({ data }) {
   )
 }
 
-// ─── Tools horizontal bar chart ───────────────────────────────────────────────
+// ─── Tools chart ─────────────────────────────────────────────────────────────
+
+const TOOL_COLORS = {
+  // File I/O
+  Read:          '#3b82f6',
+  Write:         '#3b82f6',
+  Edit:          '#3b82f6',
+  // Search / navigation
+  Grep:          '#06b6d4',
+  Glob:          '#06b6d4',
+  // Shell execution
+  Bash:          '#f59e0b',
+  // Agent / task orchestration
+  Agent:         '#8b5cf6',
+  Task:          '#8b5cf6',
+  TaskCreate:    '#8b5cf6',
+  TaskUpdate:    '#8b5cf6',
+  TaskGet:       '#8b5cf6',
+  TaskList:      '#8b5cf6',
+  TaskOutput:    '#8b5cf6',
+  TaskStop:      '#8b5cf6',
+  // Web
+  WebFetch:      '#10b981',
+  WebSearch:     '#10b981',
+  // Notebook
+  NotebookEdit:  '#ec4899',
+  // Skill / plan
+  Skill:         '#a855f7',
+  ExitPlanMode:  '#a855f7',
+  EnterPlanMode: '#a855f7',
+}
+const TOOL_COLOR_DEFAULT = '#6366f1'
+
+function toolColor(name) {
+  return TOOL_COLORS[name] ?? TOOL_COLOR_DEFAULT
+}
 
 function ToolsChart({ tools }) {
   if (!tools || tools.length === 0) {
     return <div className="an__empty">No tool data in range.</div>
   }
-  const MAX_BAR = 320
-  const maxCount = Math.max(...tools.map(t => t.count), 1)
-  const ROW_H = 24
+  const total = tools.reduce((s, t) => s + t.count, 0)
+  const maxCount = tools[0]?.count || 1   // already sorted desc from backend
 
   return (
-    <svg
-      viewBox={`0 0 500 ${tools.length * ROW_H}`}
-      className="an__svg-tools"
-      preserveAspectRatio="xMidYMid meet"
-    >
-      {tools.map((t, i) => (
-        <g key={t.tool} transform={`translate(0,${i * ROW_H})`}>
-          <text x={0} y={16} fontSize="11" fill="var(--text)">{t.tool}</text>
-          <rect
-            x={120}
-            y={4}
-            width={(t.count / maxCount) * MAX_BAR}
-            height={14}
-            fill="#6366f1"
-            opacity={0.8}
-            rx={2}
-          />
-          <text
-            x={125 + (t.count / maxCount) * MAX_BAR}
-            y={16}
-            fontSize="10"
-            fill="var(--text-muted)"
-          >
-            {t.count}
-          </text>
-        </g>
-      ))}
-    </svg>
+    <div className="an__tools-list">
+      {tools.map((t, i) => {
+        const pct = total > 0 ? (t.count / total * 100).toFixed(1) : '0.0'
+        const barPct = (t.count / maxCount * 100).toFixed(2)
+        const color = toolColor(t.tool)
+        return (
+          <div key={t.tool} className="an__tool-row">
+            <span className="an__tool-rank">{i + 1}</span>
+            <span className="an__tool-name">{t.tool}</span>
+            <div className="an__tool-bar-track">
+              <div
+                className="an__tool-bar-fill"
+                style={{ width: `${barPct}%`, background: color }}
+              />
+            </div>
+            <span className="an__tool-count">{t.count.toLocaleString()}</span>
+            <span className="an__tool-pct" style={{ color }}>{pct}%</span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
