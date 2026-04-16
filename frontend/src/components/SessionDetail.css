@@ -403,29 +403,49 @@
 .msg-tool {
   width: 100%;
   border: 1px solid var(--border);
-  border-left: 2px solid rgba(245, 158, 11, 0.4);
+  border-left: 3px solid rgba(245, 158, 11, 0.55);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  overflow: hidden;
   font-size: 12px;
   background: var(--surface);
 }
 
 .msg-tool-result {
-  border-left-color: rgba(16, 185, 129, 0.4);
+  border-left-color: rgba(16, 185, 129, 0.55);
 }
 
 .msg-tool-summary {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   cursor: pointer;
   user-select: none;
   list-style: none;
   background: var(--surface-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  transition: background 0.12s;
 }
 
+.msg-tool[open] > .msg-tool-summary {
+  border-radius: 0 var(--radius-sm) 0 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.msg-tool-summary:hover { background: var(--surface-3, var(--surface-2)); }
+
 .msg-tool-summary::-webkit-details-marker { display: none; }
+
+.msg-tool-summary::before {
+  content: '▸';
+  font-size: 9px;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.msg-tool[open] > .msg-tool-summary::before {
+  transform: rotate(90deg);
+}
 
 .tool-label {
   font-size: 8px;
@@ -471,10 +491,13 @@
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--surface-2);
-  border-top: 1px solid var(--border);
-  max-height: 280px;
+  height: 220px;
+  min-height: 60px;
+  max-height: none;
   overflow-y: auto;
+  resize: vertical;
   line-height: 1.6;
+  box-sizing: border-box;
 }
 
 /* ── Summary / compact block ──────────────────────────────── */
