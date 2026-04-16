@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [2.9.0] — 2026-04-15
+
+### CI
+
+- **Docker build workflow** — new `docker.yml` GitHub Actions workflow builds the multi-stage Docker image and runs a smoke test (API must respond at `/api/sessions`) on every PR that touches `Dockerfile`, `Pipfile`, `backend/`, or `frontend/`. Dumps container logs on failure.
+- **Docker badge** — added to `README.md` alongside Lint and Test badges.
+
+---
+
 ## [2.8.0] — 2026-04-15
 
 ### CI

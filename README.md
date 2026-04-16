@@ -2,6 +2,7 @@
 
 [![Lint](https://github.com/morissette/claude-sessions-ui/actions/workflows/lint.yml/badge.svg)](https://github.com/morissette/claude-sessions-ui/actions/workflows/lint.yml)
 [![Test](https://github.com/morissette/claude-sessions-ui/actions/workflows/test.yml/badge.svg)](https://github.com/morissette/claude-sessions-ui/actions/workflows/test.yml)
+[![Docker](https://github.com/morissette/claude-sessions-ui/actions/workflows/docker.yml/badge.svg)](https://github.com/morissette/claude-sessions-ui/actions/workflows/docker.yml)
 
 ![Claude Sessions UI dashboard](images/feature-dashboard-overview.png)
 
