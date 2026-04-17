@@ -50,23 +50,20 @@ A real-time monitoring dashboard for Claude CLI sessions. Tracks token usage, co
 ```bash
 # Install Python dependencies
 pipenv install
-
-# Install frontend dependencies
-cd frontend && npm install && cd ..
 ```
 
 ## Running
 
 **Development** (hot reload on both frontend and backend):
 ```bash
-./dev.sh
+pipenv run ./dev.sh
 ```
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8765
 
 **Production** (builds frontend, serves everything from FastAPI):
 ```bash
-./start.sh
+pipenv run ./start.sh
 ```
 - App: http://localhost:8765
 
