@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file. Format base
 
 ---
 
+## [Unreleased]
+
+### Developer Experience
+
+- Pin local Python version to 3.14 via `.python-version` for pyenv/toolchain consistency.
+- README: run `dev.sh` and `start.sh` via `pipenv run` to ensure correct virtualenv is used.
+- README: remove redundant `cd frontend && npm install` step from setup instructions.
+
+---
+
 ## [2.13.0] — 2026-04-16
 
 ### UI
